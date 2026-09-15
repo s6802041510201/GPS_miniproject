@@ -1,0 +1,57 @@
+const { getSessionDate, getWeekdayName } = require('./date');
+
+function toLocalDate(sessionDate, time) {
+  const offset = process.env.APP_TIMEZONE_OFFSET || '+07:00';
+  return new Date(`${sessionDate}T${time}:00${offset}`);
+}
+
+function formatLocalTime(value) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: process.env.APP_TIMEZONE || 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(value);
+}
+
+function getSessionDetails(schedule, now = new Date()) {
+  if (!schedule?.dayOfWeek || !schedule.startTime || !schedule.endTime) {
+    return {
+      isToday: false,
+      sessionStatus: 'not_scheduled',
+      checkInAllowed: true,
+      onTimeAllowed: true,
+      checkInOpenTime: null,
+      onTimeUntil: null,
+      checkInCloseTime: null,
+    };
+  }
+
+  const isToday = schedule.dayOfWeek === getWeekdayName(now);
+  const sessionDate = getSessionDate(now);
+  const start = toLocalDate(sessionDate, schedule.startTime);
+  const end = toLocalDate(sessionDate, schedule.endTime);
+  const open = new Date(start.getTime() - Number(schedule.openMinutesBefore ?? 30) * 60 * 1000);
+  const onTimeUntil = new Date(start.getTime() + Number(schedule.lateAfterMinutes ?? 15) * 60 * 1000);
+  const close = new Date(end.getTime() + Number(schedule.closeMinutesAfter ?? 15) * 60 * 1000);
+
+  let sessionStatus = 'not_today';
+  if (isToday) {
+    if (now < open) sessionStatus = 'upcoming';
+    else if (now <= onTimeUntil) sessionStatus = 'open';
+    else if (now <= close) sessionStatus = 'late';
+    else sessionStatus = 'closed';
+  }
+
+  return {
+    isToday,
+    sessionStatus,
+    checkInAllowed: isToday && now >= open && now <= close,
+    onTimeAllowed: isToday && now >= open && now <= onTimeUntil,
+    checkInOpenTime: formatLocalTime(open),
+    onTimeUntil: formatLocalTime(onTimeUntil),
+    checkInCloseTime: formatLocalTime(close),
+  };
+}
+
+module.exports = { getSessionDetails };

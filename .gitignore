@@ -1,0 +1,25 @@
+node_modules/
+
+# Local databases and environment files
+server/data/
+server/.env
+mobile/.env
+mobile/.env.*
+!mobile/.env.example
+
+# Expo generated files
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/ios/
+mobile/android/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local agent/editor instructions
+**/.claude/
+**/AGENTS.md
+**/CLAUDE.md

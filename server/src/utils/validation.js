@@ -10,5 +10,12 @@ function isValidRadius(value) {
   return Number.isFinite(value) && value > 0;
 }
 
-module.exports = { isValidLatitude, isValidLongitude, isValidRadius };
+function isValidAccuracy(value) {
+  return Number.isFinite(value) && value >= 0 && value <= 100;
+}
 
+function isValidId(value) {
+  return Number.isInteger(value) && value > 0;
+}
+
+module.exports = { isValidAccuracy, isValidId, isValidLatitude, isValidLongitude, isValidRadius };

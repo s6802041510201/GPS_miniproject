@@ -1,11 +1,13 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AnimatedSurface } from '@/components/AnimatedSurface';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
+import { AppIcon } from '@/components/AppIcon';
+import { IconButton } from '@/components/IconButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { NavigationBar } from '@/components/NavigationBar';
 import { Course, User } from '@/services/api';
-import { colors, radius, shadows, spacing } from '@/theme';
+import { colors, navigation, radius, shadows, spacing } from '@/theme';
 import { formatDistance, formatTime } from '@/utils/format';
 
 type Props = {
@@ -39,20 +41,21 @@ export function StudentHomeScreen({
   onNavigate,
   onLogout,
 }: Props) {
-  const todayCourses = courses.filter((course) => course.isToday);
-  const sessionCourses = todayCourses.length > 0 ? todayCourses : courses.slice(0, 1);
+  const newCheckInCourses = courses.filter(isNewCheckInCourse);
+  const visibleCourses = courses.filter((course) => !isCompletedOrMissedCourse(course) && !isNewCheckInCourse(course));
 
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
+    <View style={styles.screenRoot}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
       <DecorativeBackdrop />
       <AnimatedSurface delay={40}>
         <ScreenHeader onLogout={onLogout} subtitle={`Student ID: ${user.userCode}`} title={`Hello, ${user.name}`} />
       </AnimatedSurface>
 
-      {sessionCourses.length > 0 ? (
+      {newCheckInCourses.length > 0 ? (
         <View style={styles.sessionGroup}>
-          <Text style={styles.sessionGroupTitle}>{todayCourses.length > 0 ? "TODAY'S SESSIONS" : 'NEXT SESSION'}</Text>
-          {sessionCourses.map((course, index) => {
+          <Text style={styles.sessionGroupTitle}>NEW CHECK-IN</Text>
+          {newCheckInCourses.map((course, index) => {
             const alreadyCheckedIn = course.status === 'present' || course.status === 'late';
             return (
               <AnimatedSurface key={course.id} delay={90 + index * 50} style={styles.todayCard}>
@@ -61,7 +64,7 @@ export function StudentHomeScreen({
                     <Text style={styles.courseCode}>{course.courseCode}</Text>
                     <Text style={styles.todayTitle}>{course.courseName}</Text>
                   </View>
-                  <View style={styles.todayIcon}><Text style={styles.todayIconText}>{alreadyCheckedIn ? '✓' : '•'}</Text></View>
+                  <View style={styles.todayIcon}><AppIcon color={colors.accentDark} name={alreadyCheckedIn ? 'check' : 'calendar'} size={22} /></View>
                 </View>
                 <View style={styles.todayMeta}>
                   <Text style={styles.todayMetaText}>{course.dayOfWeek ?? 'Scheduled'} • {course.schedule}</Text>
@@ -84,7 +87,7 @@ export function StudentHomeScreen({
       <View style={styles.actions}>
         <PrimaryButton label="Attendance history" onPress={onHistory} variant="secondary" />
         <PrimaryButton label="Profile" onPress={onProfile} variant="secondary" />
-        <PrimaryButton label="Refresh" onPress={onRefresh} variant="secondary" />
+        <IconButton icon="refresh" label="Refresh student courses" onPress={onRefresh} />
       </View>
 
       {checkInMessage ? (
@@ -100,7 +103,11 @@ export function StudentHomeScreen({
         <View style={styles.empty}><Text style={styles.muted}>No enrolled courses were found.</Text></View>
       ) : null}
 
-      {courses.map((course, index) => {
+      {visibleCourses.length === 0 && newCheckInCourses.length === 0 && courses.length > 0 && !isLoading && !errorMessage ? (
+        <View style={styles.empty}><Text style={styles.muted}>Completed and missed sessions are available in Attendance history.</Text></View>
+      ) : null}
+
+      {visibleCourses.map((course, index) => {
         const alreadyCheckedIn = course.status === 'present' || course.status === 'late';
         return (
           <AnimatedSurface key={course.id} delay={140 + index * 60} style={styles.courseCard}>
@@ -132,12 +139,13 @@ export function StudentHomeScreen({
           </AnimatedSurface>
         );
       })}
+      </ScrollView>
       <NavigationBar
         items={[{ key: 'home', label: 'Home' }, { key: 'history', label: 'History' }, { key: 'profile', label: 'Profile' }]}
         onSelect={onNavigate}
         selected="home"
       />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -145,13 +153,33 @@ function getCheckInLabel(course: Course, alreadyCheckedIn: boolean, isChecking: 
   if (alreadyCheckedIn) return 'Check-in completed';
   if (isChecking) return 'Reading location...';
   if (course.sessionStatus === 'upcoming') return `Opens at ${course.checkInOpenTime ?? 'scheduled time'}`;
+  if (course.sessionStatus === 'scheduled') return 'Waiting for teacher to open';
   if (course.sessionStatus === 'not_today') return `Available ${course.dayOfWeek ?? 'on schedule'}`;
+  if (course.sessionStatus === 'closed_by_teacher') return 'Closed by teacher';
+  if (course.sessionStatus === 'cancelled') return 'Session cancelled';
   if (course.sessionStatus === 'closed') return 'Check-in closed';
   if (course.sessionStatus === 'late') return 'Check in late';
   return 'Check in';
 }
 
+function isCompletedOrMissedCourse(course: Course) {
+  return course.status === 'present'
+    || course.status === 'late'
+    || course.sessionStatus === 'closed'
+    || course.sessionStatus === 'closed_by_teacher'
+    || course.sessionStatus === 'cancelled';
+}
+
+function isNewCheckInCourse(course: Course) {
+  return Boolean(
+    course.isToday
+      && !isCompletedOrMissedCourse(course)
+      && ['upcoming', 'scheduled', 'open', 'late'].includes(course.sessionStatus ?? ''),
+  );
+}
+
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, paddingLeft: navigation.rail, position: 'relative' },
   content: { flexGrow: 1, gap: spacing.lg, padding: spacing.xl, backgroundColor: colors.canvas },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   sessionGroup: { gap: spacing.md },
@@ -161,7 +189,6 @@ const styles = StyleSheet.create({
   todayEyebrow: { color: colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
   todayTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: spacing.xs },
   todayIcon: { alignItems: 'center', backgroundColor: colors.accentSoft, borderRadius: radius.md, height: 44, justifyContent: 'center', width: 44 },
-  todayIconText: { color: colors.accentDark, fontSize: 22, fontWeight: '800' },
   todayMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
   todayMetaText: { color: colors.body, fontSize: 14, fontWeight: '700' },
   sessionWindow: { color: colors.muted, fontSize: 13, lineHeight: 19 },

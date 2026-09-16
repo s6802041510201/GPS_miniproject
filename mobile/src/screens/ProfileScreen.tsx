@@ -4,12 +4,14 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { NavigationBar } from '@/components/NavigationBar';
 import { User } from '@/services/api';
+import { navigation } from '@/theme';
 
 type Props = { user: User; onBack: () => void; onLogout: () => void; onNavigate: (key: 'home' | 'history' | 'profile') => void };
 
 export function ProfileScreen({ user, onBack, onLogout, onNavigate }: Props) {
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
+    <View style={styles.screenRoot}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
       <DecorativeBackdrop />
       <ScreenHeader onBack={onBack} subtitle="Account details" title="Profile" />
       <View style={styles.avatar}><Text style={styles.avatarText}>{user.name.charAt(0).toUpperCase()}</Text></View>
@@ -24,16 +26,18 @@ export function ProfileScreen({ user, onBack, onLogout, onNavigate }: Props) {
         </View>
       </View>
       <PrimaryButton label="Log out" onPress={onLogout} variant="danger" />
+      </ScrollView>
       <NavigationBar
         items={[{ key: 'home', label: 'Home' }, { key: 'history', label: 'History' }, { key: 'profile', label: 'Profile' }]}
         onSelect={onNavigate}
         selected="profile"
       />
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, paddingLeft: navigation.rail, position: 'relative' },
   content: { alignItems: 'stretch', flexGrow: 1, gap: 18, padding: 24, backgroundColor: '#F4F7FB' },
   avatar: { alignItems: 'center', alignSelf: 'center', justifyContent: 'center', width: 88, height: 88, borderRadius: 44, backgroundColor: '#DBEAFE' },
   avatarText: { color: '#1D4ED8', fontSize: 38, fontWeight: '800' },

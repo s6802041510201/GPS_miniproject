@@ -1,4 +1,8 @@
+import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '../constants/config';
+
+const AUTH_TOKEN_KEY = 'geo_attendance_access_token';
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export type User = {
   id: number;
@@ -36,7 +40,12 @@ export type Course = {
   startTime?: string | null;
   endTime?: string | null;
   isToday?: boolean;
-  sessionStatus?: 'not_scheduled' | 'not_today' | 'upcoming' | 'open' | 'late' | 'closed';
+  sessionStatus?: 'not_scheduled' | 'not_today' | 'upcoming' | 'scheduled' | 'open' | 'late' | 'closed' | 'closed_by_teacher' | 'cancelled';
+  sessionControlStatus?: 'SCHEDULED' | 'OPEN' | 'CLOSED' | 'CANCELLED' | null;
+  sessionId?: number | null;
+  sessionDate?: string | null;
+  classStartTime?: string | null;
+  classEndTime?: string | null;
   checkInAllowed?: boolean;
   onTimeAllowed?: boolean;
   checkInOpenTime?: string | null;
@@ -49,16 +58,70 @@ export type Course = {
   status: 'present' | 'late' | null;
 };
 
+export type ClassSession = {
+  id: number;
+  courseId: number;
+  teacherId: number;
+  classroomId: number;
+  courseCode: string;
+  courseName: string;
+  roomName: string;
+  buildingCode?: string | null;
+  sessionDate: string;
+  classStartTime: string;
+  classEndTime: string;
+  checkinOpenTime: string;
+  checkinCloseTime: string;
+  gpsRadius: number;
+  status: 'SCHEDULED' | 'OPEN' | 'CLOSED' | 'CANCELLED';
+  sessionStatus: 'not_today' | 'upcoming' | 'scheduled' | 'open' | 'closed' | 'closed_by_teacher' | 'cancelled';
+  checkInAllowed: boolean;
+  openedAt: string | null;
+  closedAt: string | null;
+};
+
+export type SessionInput = {
+  courseId: number;
+  classroomId: number;
+  sessionDate: string;
+  classStartTime: string;
+  classEndTime: string;
+  checkinOpenTime: string;
+  checkinCloseTime: string;
+  gpsRadius: number;
+};
+
+export type SessionAttendanceStudent = {
+  userCode: string;
+  name: string;
+  checkInTime: string | null;
+  distance: number | null;
+  accuracy: number | null;
+  status: 'present' | 'late' | null;
+};
+
+export type SessionAttendanceResponse = {
+  session: ClassSession;
+  summary: {
+    totalStudents: number;
+    presentCount: number;
+    lateCount: number;
+    absentCount: number;
+    attendanceRate: number;
+  };
+  students: SessionAttendanceStudent[];
+};
+
 export type AttendanceRecord = {
   id: number;
   courseCode: string;
   courseName: string;
   roomName: string;
-  distance: number;
+  distance: number | null;
   accuracy: number | null;
-  checkInTime: string;
+  checkInTime: string | null;
   sessionDate: string;
-  status: 'present' | 'late' | 'absent';
+  status: 'present' | 'late' | 'absent' | 'cancelled';
 };
 
 export type DashboardStudent = {
@@ -102,6 +165,36 @@ export function clearAuthToken() {
   authToken = null;
 }
 
+export async function restoreAuthToken(): Promise<string | null> {
+  try {
+    const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    authToken = token;
+    return token;
+  } catch {
+    authToken = null;
+    return null;
+  }
+}
+
+export async function persistAuthToken(token: string) {
+  authToken = token;
+  try {
+    await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
+  } catch {
+    // Keep the in-memory token available for the current session. Native builds
+    // normally support SecureStore; the fallback keeps web development usable.
+  }
+}
+
+export async function removePersistedAuthToken() {
+  authToken = null;
+  try {
+    await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    // There is no persisted token to remove on unsupported platforms.
+  }
+}
+
 export class ApiError extends Error {
   code: string;
   status: number;
@@ -117,9 +210,13 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
@@ -143,13 +240,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       throw error;
     }
 
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError('The API request timed out. Check the network and try again.', 0, 'NETWORK_TIMEOUT');
+    }
+
     throw new ApiError('Unable to connect to the API server.', 0, 'NETWORK_ERROR');
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
-    const response = await fetch(`${API_BASE_URL}/api/health`, { signal });
+    const response = await fetch(`${API_BASE_URL}/api/health`, { signal: signal ?? controller.signal });
 
     if (!response.ok) {
       throw new Error('The API server returned an error.');
@@ -162,6 +268,8 @@ export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse>
     }
 
     throw new Error('Unable to connect to the API server.');
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -170,6 +278,11 @@ export async function login(userCode: string, password: string): Promise<LoginRe
     method: 'POST',
     body: JSON.stringify({ userCode, password }),
   });
+}
+
+export async function fetchCurrentUser(): Promise<User> {
+  const response = await request<{ user: User }>('/api/users/me');
+  return response.user;
 }
 
 export async function logout(): Promise<void> {
@@ -186,6 +299,44 @@ export async function fetchTeacherCourses(teacherId: number): Promise<Course[]> 
   return response.courses;
 }
 
+export async function fetchTeacherSessions(teacherId: number): Promise<ClassSession[]> {
+  const response = await request<{ sessions: ClassSession[] }>(`/api/teacher/sessions?teacherId=${teacherId}`);
+  return response.sessions;
+}
+
+export async function fetchTeacherSessionAttendance(id: number): Promise<SessionAttendanceResponse> {
+  return request<SessionAttendanceResponse>(`/api/teacher/sessions/${id}/attendance`);
+}
+
+export async function createTeacherSession(input: SessionInput): Promise<ClassSession> {
+  const response = await request<{ session: ClassSession }>('/api/teacher/sessions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return response.session;
+}
+
+export async function updateTeacherSession(id: number, input: SessionInput): Promise<ClassSession> {
+  const response = await request<{ session: ClassSession }>(`/api/teacher/sessions/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  return response.session;
+}
+
+export async function controlTeacherSession(id: number, action: 'open' | 'close' | 'cancel'): Promise<ClassSession> {
+  const response = await request<{ session: ClassSession }>(`/api/teacher/sessions/${id}/${action}`, {
+    method: 'POST',
+  });
+  return response.session;
+}
+
+export async function deleteTeacherSession(id: number): Promise<void> {
+  await request<{ deletedSessionId: number }>(`/api/teacher/sessions/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function fetchAttendance(studentId: number): Promise<AttendanceRecord[]> {
   const response = await request<{ records: AttendanceRecord[] }>(
     `/api/attendance/student/${studentId}`,
@@ -197,6 +348,7 @@ export async function checkIn(payload: {
   studentId: number;
   courseId: number;
   classroomId: number;
+  sessionId?: number | null;
   latitude: number;
   longitude: number;
   accuracy: number | null;
@@ -229,4 +381,10 @@ export async function saveClassroom(
     },
   );
   return response.classroom;
+}
+
+export async function deleteClassroom(id: number): Promise<void> {
+  await request<{ deletedClassroomId: number }>(`/api/classrooms/${id}`, {
+    method: 'DELETE',
+  });
 }

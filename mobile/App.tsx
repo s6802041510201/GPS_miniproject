@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ApiError, AttendanceRecord, Classroom, Course, DashboardResponse, User, checkIn, clearAuthToken, fetchAttendance, fetchClassrooms, fetchCourses, fetchDashboard, fetchTeacherCourses, login as loginApi, logout as logoutApi, saveClassroom, setAuthToken } from '@/services/api';
+import { ApiError, AttendanceRecord, ClassSession, Classroom, Course, DashboardResponse, SessionInput, User, checkIn, controlTeacherSession, createTeacherSession, deleteClassroom, deleteTeacherSession, fetchAttendance, fetchClassrooms, fetchCourses, fetchDashboard, fetchCurrentUser, fetchTeacherCourses, fetchTeacherSessions, login as loginApi, logout as logoutApi, persistAuthToken, removePersistedAuthToken, restoreAuthToken, saveClassroom, updateTeacherSession } from '@/services/api';
 import { calculateDistanceInMeters } from '@/utils/distance';
 import { AttendanceHistoryScreen } from '@/screens/AttendanceHistoryScreen';
 import { ClassroomManagementScreen } from '@/screens/ClassroomManagementScreen';
@@ -11,11 +11,12 @@ import { TeacherDashboardScreen } from '@/screens/TeacherDashboardScreen';
 import { TeacherStudentsScreen } from '@/screens/TeacherStudentsScreen';
 import { TeacherStatisticsScreen } from '@/screens/TeacherStatisticsScreen';
 import { TeacherSettingsScreen } from '@/screens/TeacherSettingsScreen';
+import { TeacherSessionsScreen } from '@/screens/TeacherSessionsScreen';
 import { SplashScreen } from '@/screens/SplashScreen';
 import { ProfileScreen } from '@/screens/ProfileScreen';
 import { StudentLocationScreen as CourseDetailScreen } from '@/screens/StudentLocationScreen';
 
-type AppScreen = 'studentHome' | 'history' | 'location' | 'profile' | 'teacherDashboard' | 'teacherStudents' | 'teacherStatistics' | 'teacherSettings' | 'classrooms';
+type AppScreen = 'studentHome' | 'history' | 'location' | 'profile' | 'teacherDashboard' | 'teacherStudents' | 'teacherStatistics' | 'teacherSettings' | 'teacherSessions' | 'classrooms';
 type CheckInMessage = { kind: 'success' | 'error' | 'info'; text: string };
 
 function getErrorMessage(error: unknown) {
@@ -36,18 +37,48 @@ export default function App() {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+  const [teacherSessions, setTeacherSessions] = useState<ClassSession[]>([]);
+  const [selectedTeacherCourseId, setSelectedTeacherCourseId] = useState<number | null>(null);
   const [checkInMessage, setCheckInMessage] = useState<CheckInMessage | null>(null);
   const [checkingCourseId, setCheckingCourseId] = useState<number | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [studentLocation, setStudentLocation] = useState<{ latitude: number; longitude: number }>();
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsBooting(false), 700);
-    return () => clearTimeout(timer);
+    let active = true;
+
+    async function restoreSession() {
+      const minimumSplash = new Promise((resolve) => setTimeout(resolve, 700));
+      const token = await restoreAuthToken();
+
+      if (token) {
+        try {
+          const currentUser = await fetchCurrentUser();
+          if (active) {
+            setUser(currentUser);
+            setScreen(currentUser.role === 'student' ? 'studentHome' : 'teacherDashboard');
+            if (currentUser.role === 'student') await loadStudentData(currentUser.id);
+            else await loadTeacherData(currentUser.id);
+          }
+        } catch (error) {
+          if (error instanceof ApiError && (error.code === 'AUTH_INVALID' || error.code === 'AUTH_REQUIRED')) {
+            await removePersistedAuthToken();
+          } else if (active) {
+            setAuthError('Unable to restore the previous session. Check the API connection and try again.');
+          }
+        }
+      }
+
+      await minimumSplash;
+      if (active) setIsBooting(false);
+    }
+
+    void restoreSession();
+    return () => { active = false; };
   }, []);
 
-  async function loadStudentData(studentId: number) {
-    setDataLoading(true);
+  async function loadStudentData(studentId: number, showLoading = true) {
+    if (showLoading) setDataLoading(true);
     setDataError(null);
     try {
       const [courseData, attendanceData] = await Promise.all([
@@ -57,28 +88,55 @@ export default function App() {
       setCourses(courseData);
       setAttendance(attendanceData);
     } catch (error) {
+      if (error instanceof ApiError && (error.code === 'AUTH_INVALID' || error.code === 'AUTH_REQUIRED')) {
+        await removePersistedAuthToken();
+        setUser(null);
+      }
       setDataError(getErrorMessage(error));
     } finally {
-      setDataLoading(false);
+      if (showLoading) setDataLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!user || user.role !== 'student') return undefined;
+
+    // Keep the student view synchronized when a teacher opens or closes a
+    // session from another device. Existing course data remains visible while
+    // the background refresh is in progress.
+    const refreshTimer = setInterval(() => {
+      void loadStudentData(user.id, false);
+    }, 5000);
+
+    return () => clearInterval(refreshTimer);
+  }, [user]);
 
   async function loadTeacherData(teacherId: number) {
     setDataLoading(true);
     setDataError(null);
     try {
-      const [courseData, classroomData] = await Promise.all([
+      const [courseData, classroomData, sessionData] = await Promise.all([
         fetchTeacherCourses(teacherId),
         fetchClassrooms(),
+        fetchTeacherSessions(teacherId),
       ]);
       setCourses(courseData);
       setClassrooms(classroomData);
-      if (courseData[0]) {
-        setDashboard(await fetchDashboard(courseData[0].id));
+      setTeacherSessions(sessionData);
+      const nextSelectedCourseId = selectedTeacherCourseId && courseData.some((course) => course.id === selectedTeacherCourseId)
+        ? selectedTeacherCourseId
+        : courseData[0]?.id ?? null;
+      setSelectedTeacherCourseId(nextSelectedCourseId);
+      if (nextSelectedCourseId) {
+        setDashboard(await fetchDashboard(nextSelectedCourseId));
       } else {
         setDashboard(null);
       }
     } catch (error) {
+      if (error instanceof ApiError && (error.code === 'AUTH_INVALID' || error.code === 'AUTH_REQUIRED')) {
+        await removePersistedAuthToken();
+        setUser(null);
+      }
       setDataError(getErrorMessage(error));
     } finally {
       setDataLoading(false);
@@ -88,10 +146,10 @@ export default function App() {
   async function handleLogin(userCode: string, password: string) {
     setAuthLoading(true);
     setAuthError(null);
-    clearAuthToken();
+    await removePersistedAuthToken();
     try {
       const loginResponse = await loginApi(userCode, password);
-      setAuthToken(loginResponse.token);
+      await persistAuthToken(loginResponse.token);
       const currentUser = loginResponse.user;
       setUser(currentUser);
       setScreen(currentUser.role === 'student' ? 'studentHome' : 'teacherDashboard');
@@ -109,12 +167,14 @@ export default function App() {
 
   function handleLogout() {
     void logoutApi().catch(() => undefined);
-    clearAuthToken();
+    void removePersistedAuthToken();
     setUser(null);
     setCourses([]);
     setAttendance([]);
     setDashboard(null);
     setClassrooms([]);
+    setTeacherSessions([]);
+    setSelectedTeacherCourseId(null);
     setCheckInMessage(null);
     setDataError(null);
     setAuthError(null);
@@ -159,6 +219,7 @@ export default function App() {
         studentId: user.id,
         courseId: course.id,
         classroomId: course.classroomId,
+        sessionId: course.sessionId,
         latitude,
         longitude,
         accuracy,
@@ -181,9 +242,15 @@ export default function App() {
         setCheckInMessage({ kind: 'error', text: 'You have already checked in for this session.' });
       } else if (error instanceof ApiError && error.code === 'SESSION_NOT_OPEN') {
         setCheckInMessage({ kind: 'info', text: error.message });
+      } else if (error instanceof ApiError && error.code === 'SESSION_CLOSED_BY_TEACHER') {
+        setCheckInMessage({ kind: 'error', text: error.message });
+      } else if (error instanceof ApiError && error.code === 'SESSION_CANCELLED') {
+        setCheckInMessage({ kind: 'error', text: error.message });
       } else if (error instanceof ApiError && error.code === 'SESSION_CLOSED') {
         setCheckInMessage({ kind: 'error', text: error.message });
       } else if (error instanceof ApiError && error.code === 'SESSION_NOT_TODAY') {
+        setCheckInMessage({ kind: 'info', text: error.message });
+      } else if (error instanceof ApiError && error.code === 'SESSION_NOT_SCHEDULED') {
         setCheckInMessage({ kind: 'info', text: error.message });
       } else {
         setCheckInMessage({ kind: 'error', text: getErrorMessage(error) });
@@ -195,6 +262,92 @@ export default function App() {
 
   async function handleTeacherRefresh() {
     if (user?.role === 'teacher') await loadTeacherData(user.id);
+  }
+
+  async function handleTeacherCourseSelect(courseId: number) {
+    setSelectedTeacherCourseId(courseId);
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      setDashboard(await fetchDashboard(courseId));
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleTeacherSessionsRefresh() {
+    if (user?.role !== 'teacher') return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      setTeacherSessions(await fetchTeacherSessions(user.id));
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleCreateTeacherSession(input: SessionInput) {
+    if (user?.role !== 'teacher') return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      await createTeacherSession(input);
+      await loadTeacherData(user.id);
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleUpdateTeacherSession(id: number, input: SessionInput) {
+    if (user?.role !== 'teacher') return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      await updateTeacherSession(id, input);
+      await loadTeacherData(user.id);
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleControlTeacherSession(id: number, action: 'open' | 'close' | 'cancel') {
+    if (user?.role !== 'teacher') return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      await controlTeacherSession(id, action);
+      await loadTeacherData(user.id);
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleDeleteTeacherSession(id: number) {
+    if (user?.role !== 'teacher') return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      await deleteTeacherSession(id);
+      await loadTeacherData(user.id);
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setDataLoading(false);
+    }
   }
 
   async function handleClassroomRefresh() {
@@ -216,6 +369,24 @@ export default function App() {
       await saveClassroom(classroom, id);
       // Reload the complete teacher data graph so Room Settings changes are
       // immediately reflected in course cards, dashboard, analytics, and maps.
+      if (user?.role === 'teacher') {
+        await loadTeacherData(user.id);
+      } else {
+        setClassrooms(await fetchClassrooms());
+      }
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleDeleteClassroom(id: number) {
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      await deleteClassroom(id);
       if (user?.role === 'teacher') {
         await loadTeacherData(user.id);
       } else {
@@ -315,24 +486,31 @@ export default function App() {
           isLoading={dataLoading}
           onBack={() => setScreen('teacherDashboard')}
           onRefresh={() => void handleClassroomRefresh()}
-          onNavigate={(key) => setScreen(key === 'dashboard' ? 'teacherDashboard' : key === 'students' ? 'teacherStudents' : key === 'statistics' ? 'teacherStatistics' : key === 'settings' ? 'teacherSettings' : 'classrooms')}
+          onNavigate={(key) => setScreen(key === 'dashboard' ? 'teacherDashboard' : key === 'students' ? 'teacherStudents' : key === 'statistics' ? 'teacherStatistics' : key === 'settings' ? 'teacherSettings' : key === 'sessions' ? 'teacherSessions' : 'classrooms')}
           onSave={(classroom, id) => handleSaveClassroom(classroom, id)}
+          onDelete={(id) => handleDeleteClassroom(id)}
         />
         <StatusBar style="dark" />
       </>
     );
   }
 
-  const teacherNavigation = (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings') => {
-    setScreen(key === 'dashboard' ? 'teacherDashboard' : key === 'students' ? 'teacherStudents' : key === 'classrooms' ? 'classrooms' : key === 'statistics' ? 'teacherStatistics' : 'teacherSettings');
+  const teacherNavigation = (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings' | 'sessions') => {
+    setScreen(key === 'dashboard' ? 'teacherDashboard' : key === 'students' ? 'teacherStudents' : key === 'classrooms' ? 'classrooms' : key === 'statistics' ? 'teacherStatistics' : key === 'sessions' ? 'teacherSessions' : 'teacherSettings');
   };
 
+  const selectedTeacherCourse = courses.find((course) => course.id === selectedTeacherCourseId) ?? courses[0] ?? null;
+
   if (screen === 'teacherStudents') {
-    return <><TeacherStudentsScreen course={courses[0] ?? null} dashboard={dashboard} onNavigate={teacherNavigation} /><StatusBar style="dark" /></>;
+    return <><TeacherStudentsScreen course={selectedTeacherCourse} dashboard={dashboard} errorMessage={dataError} isLoading={dataLoading} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherRefresh()} /><StatusBar style="dark" /></>;
   }
 
   if (screen === 'teacherStatistics') {
-    return <><TeacherStatisticsScreen course={courses[0] ?? null} dashboard={dashboard} onNavigate={teacherNavigation} /><StatusBar style="dark" /></>;
+    return <><TeacherStatisticsScreen course={selectedTeacherCourse} dashboard={dashboard} errorMessage={dataError} isLoading={dataLoading} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherRefresh()} /><StatusBar style="dark" /></>;
+  }
+
+  if (screen === 'teacherSessions') {
+    return <><TeacherSessionsScreen classrooms={classrooms} courses={courses} errorMessage={dataError} isLoading={dataLoading} onControl={handleControlTeacherSession} onDelete={handleDeleteTeacherSession} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherSessionsRefresh()} onSave={handleCreateTeacherSession} onUpdate={handleUpdateTeacherSession} sessions={teacherSessions} /><StatusBar style="dark" /></>;
   }
 
   if (screen === 'teacherSettings') {
@@ -342,14 +520,17 @@ export default function App() {
   return (
     <>
       <TeacherDashboardScreen
-        course={courses[0] ?? null}
+        course={selectedTeacherCourse}
+        courses={courses}
         dashboard={dashboard}
         errorMessage={dataError}
         isLoading={dataLoading}
         onClassrooms={() => setScreen('classrooms')}
         onLogout={handleLogout}
         onNavigate={teacherNavigation}
+        onCourseSelect={(courseId) => void handleTeacherCourseSelect(courseId)}
         onRefresh={() => void handleTeacherRefresh()}
+        selectedCourseId={selectedTeacherCourse?.id ?? null}
         user={user}
       />
       <StatusBar style="dark" />

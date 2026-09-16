@@ -23,6 +23,11 @@ The following cases are the minimum acceptance suite for Buildings 44 and 52. Re
 | SESSION-03 | Check in after the on-time threshold but before close | The attendance record is stored as `late`. |
 | SESSION-04 | Check in after the close time | The API returns `SESSION_CLOSED`. |
 | SESSION-05 | Check in for a course scheduled on another weekday | The API returns `SESSION_NOT_TODAY`. |
+| SESSION-06 | Student checks in before a teacher-controlled session is opened | The API returns `SESSION_NOT_OPEN`. |
+| SESSION-07 | Teacher opens a controlled session | The session changes to `OPEN` and an enrolled student may check in. |
+| SESSION-08 | Teacher closes a controlled session | The session changes to `CLOSED` and new check-ins are rejected. |
+| SESSION-09 | Teacher cancels a controlled session | The session changes to `CANCELLED` and new check-ins are rejected. |
+| SESSION-10 | Another teacher modifies a session they do not own | The API returns `FORBIDDEN` or `SESSION_NOT_FOUND`. |
 
 ## Data and role test matrix
 
@@ -35,6 +40,8 @@ The following cases are the minimum acceptance suite for Buildings 44 and 52. Re
 | DATA-02 | Load the teacher dashboard | Present, Late, Absent, and rate totals match the selected course. |
 | DATA-03 | Save a classroom with an invalid radius | The API rejects the request. |
 | DATA-04 | Use the logout endpoint | The session token can no longer access protected endpoints. |
+| DATA-05 | Create a teacher-controlled session | The API stores the selected course, classroom, times, and GPS radius. |
+| DATA-06 | Edit an unopened teacher-controlled session | The API updates the session and keeps it `SCHEDULED`. |
 
 ## Device QA checklist
 

@@ -1,35 +1,42 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AnimatedSurface } from '@/components/AnimatedSurface';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
+import { IconButton } from '@/components/IconButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { LocationMap } from '@/components/LocationMap';
 import { NavigationBar } from '@/components/NavigationBar';
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { colors, radius, shadows, spacing } from '@/theme';
+import { colors, navigation, radius, shadows, spacing } from '@/theme';
 import { Course, DashboardResponse, DashboardStudent, User } from '@/services/api';
 import { formatDistance, formatTime } from '@/utils/format';
 
 type Props = {
   user: User;
   course: Course | null;
+  courses: Course[];
+  selectedCourseId: number | null;
   dashboard: DashboardResponse | null;
   isLoading: boolean;
   errorMessage: string | null;
   onRefresh: () => void;
   onClassrooms: () => void;
   onLogout: () => void;
-  onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings') => void;
+  onCourseSelect: (courseId: number) => void;
+  onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings' | 'sessions') => void;
 };
 
 export function TeacherDashboardScreen({
   user,
   course,
+  courses,
+  selectedCourseId,
   dashboard,
   isLoading,
   errorMessage,
   onRefresh,
   onClassrooms,
   onLogout,
+  onCourseSelect,
   onNavigate,
 }: Props) {
   const summary = dashboard?.summary ?? {
@@ -43,7 +50,8 @@ export function TeacherDashboardScreen({
   const attendanceRate = summary.attendanceRate;
 
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
+    <View style={styles.screenRoot}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
       <DecorativeBackdrop />
       <AnimatedSurface delay={40}>
         <ScreenHeader onLogout={onLogout} subtitle={`Teacher ID: ${user.userCode}`} title="Attendance dashboard" />
@@ -62,9 +70,29 @@ export function TeacherDashboardScreen({
       </AnimatedSurface>
 
       <View style={styles.actions}>
-        <PrimaryButton label="Refresh" onPress={onRefresh} variant="secondary" />
+          <IconButton icon="refresh" label="Refresh dashboard" onPress={onRefresh} />
         <PrimaryButton label="Room settings" onPress={onClassrooms} variant="secondary" />
       </View>
+
+      {courses.length > 1 ? (
+        <View style={styles.courseSelector}>
+          <Text style={styles.selectorLabel}>Select course</Text>
+          <View style={styles.courseOptions}>
+            {courses.map((item) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: item.id === selectedCourseId }}
+                key={item.id}
+                onPress={() => onCourseSelect(item.id)}
+                style={({ pressed }) => [styles.courseOption, item.id === selectedCourseId && styles.courseOptionSelected, pressed && styles.optionPressed]}
+              >
+                <Text style={[styles.courseOptionCode, item.id === selectedCourseId && styles.courseOptionCodeSelected]}>{item.courseCode}</Text>
+                <Text numberOfLines={1} style={[styles.courseOptionName, item.id === selectedCourseId && styles.courseOptionNameSelected]}>{item.courseName}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {course ? (
         <AnimatedSurface delay={160} style={styles.courseBanner}>
@@ -127,12 +155,13 @@ export function TeacherDashboardScreen({
         </>
       ) : null}
 
+      </ScrollView>
       <NavigationBar
-        items={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'students', label: 'Students' }, { key: 'classrooms', label: 'Room settings' }, { key: 'statistics', label: 'Analytics' }, { key: 'settings', label: 'Settings' }]}
+        items={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'sessions', label: 'Sessions' }, { key: 'students', label: 'Students' }, { key: 'classrooms', label: 'Rooms' }, { key: 'statistics', label: 'Analytics' }, { key: 'settings', label: 'Settings' }]}
         onSelect={onNavigate}
         selected="dashboard"
       />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -187,6 +216,7 @@ function AttendanceRing({ rate }: { rate: number }) {
 }
 
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, paddingLeft: navigation.rail, position: 'relative' },
   content: { flexGrow: 1, gap: spacing.xl, padding: spacing.xl, backgroundColor: colors.canvas },
   presentationHeader: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', gap: spacing.lg, borderRadius: radius.lg, padding: spacing.xl, backgroundColor: colors.text, boxShadow: shadows.card },
   presentationCopy: { flex: 1, gap: spacing.sm },
@@ -197,6 +227,16 @@ const styles = StyleSheet.create({
   liveDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: '#4ADE80' },
   liveText: { color: '#BBF7D0', fontSize: 12, fontWeight: '800' },
   actions: { flexDirection: 'row', gap: spacing.md },
+  courseSelector: { gap: spacing.sm, borderRadius: radius.md, padding: spacing.lg, backgroundColor: colors.surface },
+  selectorLabel: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.7, textTransform: 'uppercase' },
+  courseOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  courseOption: { minWidth: 150, flexGrow: 1, gap: spacing.xs, borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, padding: spacing.md },
+  courseOptionSelected: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  courseOptionCode: { color: colors.muted, fontSize: 11, fontWeight: '800' },
+  courseOptionCodeSelected: { color: colors.accentDark },
+  courseOptionName: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  courseOptionNameSelected: { color: colors.accentDark },
+  optionPressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
   courseBanner: { gap: spacing.sm, borderRadius: radius.md, padding: spacing.lg, backgroundColor: colors.accentSoft },
   courseBannerTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
   courseCopy: { flex: 1, gap: spacing.xs },

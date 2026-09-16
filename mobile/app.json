@@ -12,7 +12,9 @@
         {
           "locationWhenInUsePermission": "Allow Geo-Attendance to use your location for classroom check-in."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ],
     "ios": {
       "supportsTablet": true

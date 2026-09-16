@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
+import { IconButton } from '@/components/IconButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { NavigationBar } from '@/components/NavigationBar';
 import { Classroom } from '@/services/api';
+import { navigation } from '@/theme';
 
 type Props = {
   classrooms: Classroom[];
@@ -13,16 +15,20 @@ type Props = {
   onBack: () => void;
   onRefresh: () => void;
   onSave: (classroom: Omit<Classroom, 'id'>, id?: number) => Promise<void>;
-  onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings') => void;
+  onDelete: (id: number) => Promise<void>;
+  onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings' | 'sessions') => void;
 };
 
 const emptyForm = { roomName: '', latitude: '', longitude: '', radius: '50' };
 
-export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage, onBack, onRefresh, onSave, onNavigate }: Props) {
+export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage, onBack, onRefresh, onSave, onDelete, onNavigate }: Props) {
   const [selectedId, setSelectedId] = useState<number | undefined>();
   const [form, setForm] = useState(emptyForm);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Classroom | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -41,6 +47,23 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
     setSelectedId(classroom.id);
     setValidationMessage(null);
     setSaveMessage(null);
+    revealForm();
+  }
+
+  function confirmDelete(classroom: Classroom) {
+    setDeleteError(null);
+    setDeleteTarget(classroom);
+  }
+
+  async function deleteSelectedClassroom() {
+    if (!deleteTarget) return;
+    setDeleteError(null);
+    try {
+      await onDelete(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'The classroom could not be deleted.');
+    }
   }
 
   function startNew() {
@@ -48,6 +71,13 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
     setForm(emptyForm);
     setValidationMessage(null);
     setSaveMessage(null);
+    revealForm();
+  }
+
+  function revealForm() {
+    // Edit/New changes the form below the saved-room list. Move it into view so
+    // the result of the button press is immediately visible on web and mobile.
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
   }
 
   async function submit() {
@@ -71,12 +101,13 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
   }
 
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <View style={styles.screenRoot}>
+      <ScrollView ref={scrollRef} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <DecorativeBackdrop />
       <ScreenHeader onBack={onBack} subtitle="Teacher tools" title="Classroom management" />
       <View style={styles.actions}>
         <PrimaryButton label="New classroom" onPress={startNew} variant="secondary" />
-        <PrimaryButton label="Refresh" onPress={onRefresh} variant="secondary" />
+        <IconButton disabled={isLoading} icon="refresh" label={isLoading ? 'Refreshing classrooms' : 'Refresh classrooms'} onPress={onRefresh} />
       </View>
       {isLoading ? <Text style={styles.muted}>Loading classrooms...</Text> : null}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
@@ -89,7 +120,10 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
             <Text style={styles.detail}>Radius: {classroom.radius} m</Text>
             <Text style={styles.detail}>GPS: {classroom.latitude}, {classroom.longitude}</Text>
           </View>
-          <PrimaryButton label="Edit" onPress={() => selectClassroom(classroom)} variant="secondary" />
+          <View style={styles.classroomActions}>
+            <PrimaryButton label="Edit" onPress={() => selectClassroom(classroom)} variant="secondary" />
+            <PrimaryButton label="Delete" onPress={() => confirmDelete(classroom)} variant="danger" />
+          </View>
         </View>
       ))}
 
@@ -104,12 +138,27 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
         {saveMessage ? <Text style={styles.success}>{saveMessage}</Text> : null}
         <PrimaryButton label={selectedId ? 'Save changes' : 'Create classroom'} onPress={submit} />
       </View>
+      <Modal animationType="fade" transparent visible={Boolean(deleteTarget)} onRequestClose={() => setDeleteTarget(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Delete classroom?</Text>
+            <Text style={styles.confirmText}>{deleteTarget ? `Delete ${deleteTarget.roomName}? This action cannot be undone.` : ''}</Text>
+            <Text style={styles.confirmHint}>Rooms linked to courses, sessions, or attendance records cannot be deleted.</Text>
+            {deleteError ? <Text style={styles.error}>{deleteError}</Text> : null}
+            <View style={styles.confirmActions}>
+              <PrimaryButton label="Cancel" onPress={() => setDeleteTarget(null)} variant="secondary" />
+              <PrimaryButton label="Delete" onPress={() => void deleteSelectedClassroom()} variant="danger" disabled={isLoading} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+      </ScrollView>
       <NavigationBar
-        items={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'students', label: 'Students' }, { key: 'classrooms', label: 'Room settings' }, { key: 'statistics', label: 'Analytics' }, { key: 'settings', label: 'Settings' }]}
+        items={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'sessions', label: 'Sessions' }, { key: 'students', label: 'Students' }, { key: 'classrooms', label: 'Rooms' }, { key: 'statistics', label: 'Analytics' }, { key: 'settings', label: 'Settings' }]}
         onSelect={onNavigate}
         selected="classrooms"
       />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -123,6 +172,7 @@ function Field({ label, value, onChange, placeholder, keyboardType = 'default' }
 }
 
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, paddingLeft: navigation.rail, position: 'relative' },
   content: { flexGrow: 1, gap: 16, padding: 24, backgroundColor: '#F4F7FB' },
   actions: { flexDirection: 'row', gap: 10 },
   muted: { color: '#64748B', fontSize: 14 },
@@ -130,6 +180,7 @@ const styles = StyleSheet.create({
   success: { color: '#166534', fontSize: 14, lineHeight: 20 },
   sectionTitle: { color: '#0F172A', fontSize: 20, fontWeight: '800' },
   classroomRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', gap: 12, borderRadius: 16, padding: 16, backgroundColor: '#FFFFFF' },
+  classroomActions: { alignItems: 'stretch', gap: 8 },
   classroomInfo: { flex: 1, gap: 4 },
   roomName: { color: '#0F172A', fontSize: 16, fontWeight: '800' },
   building: { color: '#1D4ED8', fontSize: 12, fontWeight: '700' },
@@ -139,4 +190,10 @@ const styles = StyleSheet.create({
   fieldGroup: { gap: 7 },
   label: { color: '#334155', fontSize: 13, fontWeight: '700' },
   input: { borderColor: '#CBD5E1', borderRadius: 12, borderWidth: 1, color: '#0F172A', fontSize: 16, paddingHorizontal: 14, paddingVertical: 12 },
+  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)', flex: 1, justifyContent: 'center', padding: 24 },
+  confirmCard: { borderRadius: 18, gap: 12, padding: 20, backgroundColor: '#FFFFFF', width: '100%', maxWidth: 440 },
+  confirmTitle: { color: '#0F172A', fontSize: 20, fontWeight: '800' },
+  confirmText: { color: '#334155', fontSize: 15, lineHeight: 21 },
+  confirmHint: { color: '#64748B', fontSize: 13, lineHeight: 19 },
+  confirmActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
 });

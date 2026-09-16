@@ -35,3 +35,8 @@ export const radius = {
 export const shadows = {
   card: '0 2px 8px rgba(15, 23, 42, 0.08)',
 } as const;
+
+export const navigation = {
+  rail: 64,
+  drawer: 236,
+} as const;

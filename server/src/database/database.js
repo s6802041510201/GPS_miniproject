@@ -11,6 +11,7 @@ fs.mkdirSync(dataDirectory, { recursive: true });
 
 const database = new Database(databasePath);
 database.pragma('journal_mode = WAL');
+database.pragma('foreign_keys = ON');
 
 function hasColumn(tableName, columnName) {
   return database
@@ -79,10 +80,30 @@ database.exec(`
     UNIQUE(student_id, course_id)
   );
 
+  CREATE TABLE IF NOT EXISTS class_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL REFERENCES courses(id),
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    classroom_id INTEGER NOT NULL REFERENCES classrooms(id),
+    session_date TEXT NOT NULL,
+    class_start_time TEXT NOT NULL,
+    class_end_time TEXT NOT NULL,
+    checkin_open_time TEXT NOT NULL,
+    checkin_close_time TEXT NOT NULL,
+    gps_radius REAL NOT NULL CHECK (gps_radius > 0),
+    status TEXT NOT NULL DEFAULT 'SCHEDULED' CHECK (status IN ('SCHEDULED', 'OPEN', 'CLOSED', 'CANCELLED')),
+    opened_at TEXT,
+    closed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(course_id, session_date, class_start_time)
+  );
+
   CREATE TABLE IF NOT EXISTS attendance (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id INTEGER NOT NULL REFERENCES users(id),
     course_id INTEGER NOT NULL REFERENCES courses(id),
+    session_id INTEGER REFERENCES class_sessions(id),
     classroom_id INTEGER NOT NULL REFERENCES classrooms(id),
     latitude REAL NOT NULL,
     longitude REAL NOT NULL,
@@ -112,6 +133,7 @@ if (!hasColumn('classrooms', 'capacity')) database.exec('ALTER TABLE classrooms 
 if (!hasColumn('class_schedules', 'check_in_open_minutes_before')) database.exec('ALTER TABLE class_schedules ADD COLUMN check_in_open_minutes_before INTEGER NOT NULL DEFAULT 30');
 if (!hasColumn('class_schedules', 'late_after_minutes')) database.exec('ALTER TABLE class_schedules ADD COLUMN late_after_minutes INTEGER NOT NULL DEFAULT 15');
 if (!hasColumn('class_schedules', 'check_in_close_minutes_after')) database.exec('ALTER TABLE class_schedules ADD COLUMN check_in_close_minutes_after INTEGER NOT NULL DEFAULT 15');
+if (!hasColumn('attendance', 'session_id')) database.exec('ALTER TABLE attendance ADD COLUMN session_id INTEGER REFERENCES class_sessions(id)');
 
 const collapseDuplicateData = database.transaction(() => {
   const duplicateCourses = database
@@ -131,6 +153,8 @@ const collapseDuplicateData = database.transaction(() => {
 
     for (const duplicateId of duplicateIds) {
       database.prepare('UPDATE enrollments SET course_id = ? WHERE course_id = ?').run(duplicate.keepId, duplicateId);
+      database.prepare('UPDATE class_schedules SET course_id = ? WHERE course_id = ?').run(duplicate.keepId, duplicateId);
+      database.prepare('UPDATE class_sessions SET course_id = ? WHERE course_id = ?').run(duplicate.keepId, duplicateId);
       database.prepare('UPDATE attendance SET course_id = ? WHERE course_id = ?').run(duplicate.keepId, duplicateId);
       database.prepare('DELETE FROM courses WHERE id = ?').run(duplicateId);
     }
@@ -152,6 +176,9 @@ const collapseDuplicateData = database.transaction(() => {
       .filter((id) => id !== duplicate.keepId);
 
     for (const duplicateId of duplicateIds) {
+      database.prepare('UPDATE courses SET classroom_id = ? WHERE classroom_id = ?').run(duplicate.keepId, duplicateId);
+      database.prepare('UPDATE class_schedules SET classroom_id = ? WHERE classroom_id = ?').run(duplicate.keepId, duplicateId);
+      database.prepare('UPDATE class_sessions SET classroom_id = ? WHERE classroom_id = ?').run(duplicate.keepId, duplicateId);
       database.prepare('UPDATE attendance SET classroom_id = ? WHERE classroom_id = ?').run(duplicate.keepId, duplicateId);
       database.prepare('DELETE FROM classrooms WHERE id = ?').run(duplicateId);
     }
@@ -254,10 +281,10 @@ function ensureClassroom({ roomName, roomNumber, buildingId, latitude, longitude
     database
       .prepare(`
         UPDATE classrooms
-        SET latitude = ?, longitude = ?, radius = 50, building_id = ?, room_number = ?, capacity = 60
+        SET building_id = ?, room_number = ?, capacity = COALESCE(capacity, 60)
         WHERE id = ?
       `)
-      .run(latitude, longitude, buildingId, roomNumber, classroom.id);
+      .run(buildingId, roomNumber, classroom.id);
   }
   return database.prepare('SELECT id FROM classrooms WHERE id = ?').get(classroom.id);
 }
@@ -281,7 +308,8 @@ const room5201 = ensureClassroom({
 const legacyRoom = database.prepare('SELECT id FROM classrooms WHERE room_name = ?').get('Room 701');
 if (legacyRoom && legacyRoom.id !== room5201.id) {
   database.transaction(() => {
-    database.prepare('UPDATE attendance SET classroom_id = ? WHERE classroom_id = ?').run(room5201.id, legacyRoom.id);
+      database.prepare('UPDATE attendance SET classroom_id = ? WHERE classroom_id = ?').run(room5201.id, legacyRoom.id);
+      database.prepare('UPDATE class_sessions SET classroom_id = ? WHERE classroom_id = ?').run(room5201.id, legacyRoom.id);
     database.prepare('DELETE FROM classrooms WHERE id = ?').run(legacyRoom.id);
   })();
 }
@@ -331,6 +359,35 @@ function ensureSchedule(courseId, classroomId, dayOfWeek, startTime, endTime) {
 
 ensureSchedule(course.id, room5201.id, getWeekdayName(), '08:30', '12:00');
 ensureSchedule(secondCourse.id, room4401.id, 'Wednesday', '13:00', '16:00');
+const demoSessionDate = getSessionDate();
+
+function ensureClassSession({ courseId, teacherId, classroomId, sessionDate, classStartTime, classEndTime, checkinOpenTime, checkinCloseTime, gpsRadius }) {
+  const existing = database.prepare(
+    'SELECT id FROM class_sessions WHERE course_id = ? AND session_date = ? AND class_start_time = ?',
+  ).get(courseId, sessionDate, classStartTime);
+
+  if (existing) return existing;
+
+  const now = new Date().toISOString();
+  const result = database.prepare(
+    `INSERT INTO class_sessions
+      (course_id, teacher_id, classroom_id, session_date, class_start_time, class_end_time, checkin_open_time, checkin_close_time, gps_radius, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?)`,
+  ).run(courseId, teacherId, classroomId, sessionDate, classStartTime, classEndTime, checkinOpenTime, checkinCloseTime, gpsRadius, now, now);
+  return { id: result.lastInsertRowid };
+}
+
+const demoClassSession = ensureClassSession({
+  courseId: course.id,
+  teacherId: teacher.id,
+  classroomId: room5201.id,
+  sessionDate: demoSessionDate,
+  classStartTime: '08:30',
+  classEndTime: '12:00',
+  checkinOpenTime: '08:00',
+  checkinCloseTime: '12:15',
+  gpsRadius: 50,
+});
 
 // Consolidate rooms that represent the same building and room number.
 // Prefer the record already referenced by a course, schedule, or attendance row.
@@ -353,6 +410,7 @@ for (const duplicate of duplicateRooms) {
       AND (
         EXISTS (SELECT 1 FROM courses WHERE courses.classroom_id = classrooms.id)
         OR EXISTS (SELECT 1 FROM class_schedules WHERE class_schedules.classroom_id = classrooms.id)
+        OR EXISTS (SELECT 1 FROM class_sessions WHERE class_sessions.classroom_id = classrooms.id)
         OR EXISTS (SELECT 1 FROM attendance WHERE attendance.classroom_id = classrooms.id)
       )
       ORDER BY id
@@ -365,6 +423,7 @@ for (const duplicate of duplicateRooms) {
     database.transaction(() => {
       database.prepare('UPDATE courses SET classroom_id = ? WHERE classroom_id = ?').run(keepId, duplicateId);
       database.prepare('UPDATE class_schedules SET classroom_id = ? WHERE classroom_id = ?').run(keepId, duplicateId);
+      database.prepare('UPDATE class_sessions SET classroom_id = ? WHERE classroom_id = ?').run(keepId, duplicateId);
       database.prepare('UPDATE attendance SET classroom_id = ? WHERE classroom_id = ?').run(keepId, duplicateId);
       database.prepare('DELETE FROM classrooms WHERE id = ?').run(duplicateId);
     })();
@@ -391,7 +450,6 @@ for (const studentRecord of studentIds) {
   enrollStudent.run(studentRecord.id, secondCourse.id);
 }
 
-const demoSessionDate = getSessionDate();
 const attendanceCount = database
   .prepare('SELECT COUNT(*) AS count FROM attendance WHERE course_id = ? AND session_date = ?')
   .get(course.id, demoSessionDate);
@@ -406,8 +464,8 @@ if (attendanceCount.count === 0) {
 
   const insertAttendance = database.prepare(`
     INSERT OR IGNORE INTO attendance
-      (student_id, course_id, classroom_id, latitude, longitude, accuracy, distance, session_date, check_in_time, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (student_id, course_id, session_id, classroom_id, latitude, longitude, accuracy, distance, session_date, check_in_time, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const demoRecord of demoAttendance) {
@@ -417,6 +475,7 @@ if (attendanceCount.count === 0) {
     insertAttendance.run(
       studentRecord.id,
       course.id,
+      demoClassSession.id,
       room5201.id,
       demoRecord.latitude,
       demoRecord.longitude,
@@ -428,6 +487,10 @@ if (attendanceCount.count === 0) {
     );
   }
 }
+
+database.prepare(
+  'UPDATE attendance SET session_id = ? WHERE course_id = ? AND session_date = ? AND session_id IS NULL',
+).run(demoClassSession.id, course.id, demoSessionDate);
 
 function checkDatabaseConnection() {
   const result = database.prepare('SELECT 1 AS connected').get();

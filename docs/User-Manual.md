@@ -24,10 +24,13 @@ Teacher: T001 / 123456
 1. Select `Teacher` on the login screen.
 2. Enter the Teacher ID and password, then select `Login`.
 3. Review the selected course, building, room, schedule, attendance rate, and student statuses.
-4. Open `Students` to review the Present, Late, and Absent list.
-5. Open `Room settings` to review or update a classroom geofence.
-6. Open `Analytics` to review attendance metrics and the status chart.
-7. Select `Log out` when the session is complete.
+4. Open `Sessions` and create a session with its date, class time, check-in window, classroom, and GPS radius.
+5. Select `Open check-in` when students may check in.
+6. Open `Students` to review the Present, Late, and Absent list.
+7. Select `Close check-in` when attendance should stop. A closed session cannot accept new check-ins.
+8. Open `Room settings` to review or update a classroom geofence.
+9. Open `Analytics` to review attendance metrics and the status chart.
+10. Select `Log out` when the session is complete.
 
 ## Troubleshooting
 
@@ -35,3 +38,4 @@ Teacher: T001 / 123456
 - If GPS accuracy is low, move to an open area and retry.
 - If the student is outside the geofence, move closer to the designated classroom.
 - If the app reports a duplicate check-in, review the existing record in `Attendance history`.
+- If check-in is unavailable, ask the teacher to confirm that the correct session exists for today and is open.

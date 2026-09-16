@@ -19,8 +19,8 @@ function getSessionDetails(schedule, now = new Date()) {
     return {
       isToday: false,
       sessionStatus: 'not_scheduled',
-      checkInAllowed: true,
-      onTimeAllowed: true,
+      checkInAllowed: false,
+      onTimeAllowed: false,
       checkInOpenTime: null,
       onTimeUntil: null,
       checkInCloseTime: null,
@@ -54,4 +54,50 @@ function getSessionDetails(schedule, now = new Date()) {
   };
 }
 
-module.exports = { getSessionDetails };
+function getControlledSessionDetails(session, now = new Date()) {
+  if (!session?.sessionDate || !session.classStartTime || !session.classEndTime || !session.checkinOpenTime || !session.checkinCloseTime) {
+    return {
+      isToday: false,
+      sessionStatus: 'not_scheduled',
+      sessionControlStatus: session?.sessionControlStatus ?? session?.status ?? null,
+      checkInAllowed: false,
+      onTimeAllowed: false,
+      checkInOpenTime: null,
+      onTimeUntil: null,
+      checkInCloseTime: null,
+    };
+  }
+
+  const isToday = session.sessionDate === getSessionDate(now);
+  const start = toLocalDate(session.sessionDate, session.classStartTime);
+  const open = toLocalDate(session.sessionDate, session.checkinOpenTime);
+  const close = toLocalDate(session.sessionDate, session.checkinCloseTime);
+  // Course queries expose the database value as sessionControlStatus because
+  // attendance.status is also present in the same row. Prefer the explicit
+  // controlled-session field so an attendance result cannot overwrite it.
+  const sessionStatus = String(session.sessionControlStatus ?? session.status ?? 'SCHEDULED').toUpperCase();
+
+  let effectiveStatus = 'not_today';
+  if (isToday) {
+    if (sessionStatus === 'CANCELLED') effectiveStatus = 'cancelled';
+    else if (sessionStatus === 'CLOSED') effectiveStatus = 'closed_by_teacher';
+    else if (sessionStatus === 'OPEN' && now <= close) effectiveStatus = 'open';
+    else if (sessionStatus === 'OPEN' && now > close) effectiveStatus = 'closed';
+    else if (now < open) effectiveStatus = 'upcoming';
+    else if (now > close) effectiveStatus = 'closed';
+    else effectiveStatus = 'scheduled';
+  }
+
+  return {
+    isToday,
+    sessionStatus: effectiveStatus,
+    sessionControlStatus: sessionStatus,
+    checkInAllowed: isToday && sessionStatus === 'OPEN' && now <= close,
+    onTimeAllowed: isToday && sessionStatus === 'OPEN' && now <= start,
+    checkInOpenTime: formatLocalTime(open),
+    onTimeUntil: formatLocalTime(start),
+    checkInCloseTime: formatLocalTime(close),
+  };
+}
+
+module.exports = { getControlledSessionDetails, getSessionDetails };

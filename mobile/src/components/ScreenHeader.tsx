@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppIcon } from '@/components/AppIcon';
 
 type Props = {
   title: string;
@@ -19,7 +20,7 @@ export function ScreenHeader({ title, subtitle, onBack, onLogout }: Props) {
             onPress={onBack}
             style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
           >
-            <Text style={styles.back}>Back</Text>
+            <AppIcon name="back" size={20} />
           </Pressable>
         ) : null}
         <View style={styles.titleContent}>

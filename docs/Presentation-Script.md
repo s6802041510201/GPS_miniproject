@@ -1,4 +1,4 @@
-# Geo-Attendance Presentation Demo Script
+# Geo-Attendance Presentation Script
 
 ## Five-minute flow
 
@@ -15,4 +15,4 @@
 
 ## Key message
 
-Geo-Attendance has moved beyond a visual demo: the API validates enrollment, recalculates GPS distance on the server, protects role-specific data with access tokens, and supports the two target building geofences. Production deployment and field testing remain the final release gates.
+Geo-Attendance is a working application: the API validates enrollment, recalculates GPS distance on the server, protects role-specific data with access tokens, and supports the two target building geofences. Production deployment and field testing remain the final release gates.

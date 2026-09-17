@@ -5,9 +5,11 @@ const { hashPassword } = require('../utils/auth');
 const { getSessionDate, getWeekdayName } = require('../utils/date');
 
 const dataDirectory = path.join(__dirname, '../../data');
-const databasePath = path.join(dataDirectory, 'geo-attendance.db');
+const databasePath = process.env.GEO_ATTENDANCE_DATABASE_PATH
+  ? path.resolve(process.env.GEO_ATTENDANCE_DATABASE_PATH)
+  : path.join(dataDirectory, 'geo-attendance.db');
 
-fs.mkdirSync(dataDirectory, { recursive: true });
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 
 const database = new Database(databasePath);
 database.pragma('journal_mode = WAL');
@@ -134,6 +136,10 @@ if (!hasColumn('class_schedules', 'check_in_open_minutes_before')) database.exec
 if (!hasColumn('class_schedules', 'late_after_minutes')) database.exec('ALTER TABLE class_schedules ADD COLUMN late_after_minutes INTEGER NOT NULL DEFAULT 15');
 if (!hasColumn('class_schedules', 'check_in_close_minutes_after')) database.exec('ALTER TABLE class_schedules ADD COLUMN check_in_close_minutes_after INTEGER NOT NULL DEFAULT 15');
 if (!hasColumn('attendance', 'session_id')) database.exec('ALTER TABLE attendance ADD COLUMN session_id INTEGER REFERENCES class_sessions(id)');
+if (!hasColumn('attendance', 'notes')) database.exec('ALTER TABLE attendance ADD COLUMN notes TEXT');
+if (!hasColumn('attendance', 'attendance_source')) database.exec("ALTER TABLE attendance ADD COLUMN attendance_source TEXT NOT NULL DEFAULT 'gps'");
+if (!hasColumn('attendance', 'corrected_by')) database.exec('ALTER TABLE attendance ADD COLUMN corrected_by INTEGER REFERENCES users(id)');
+if (!hasColumn('attendance', 'corrected_at')) database.exec('ALTER TABLE attendance ADD COLUMN corrected_at TEXT');
 
 const collapseDuplicateData = database.transaction(() => {
   const duplicateCourses = database
@@ -198,29 +204,57 @@ const seedUser = database.prepare(`
   VALUES (@userCode, @name, @email, '', @passwordHash, @role)
 `);
 
-seedUser.run({
-  userCode: 'T001',
-  name: 'Demo Teacher',
-  email: 'teacher@geo-attendance.test',
-  passwordHash: hashPassword('123456'),
-  role: 'teacher',
-});
+const seedDemoData = process.env.SEED_DEMO_DATA === 'true';
 
-const demoStudents = [
-  { userCode: '65001', name: 'Demo Student', email: '65001@geo-attendance.test' },
-  { userCode: '65002', name: 'Alex Morgan', email: '65002@geo-attendance.test' },
-  { userCode: '65003', name: 'Jamie Lee', email: '65003@geo-attendance.test' },
-  { userCode: '65004', name: 'Taylor Kim', email: '65004@geo-attendance.test' },
-  { userCode: '65005', name: 'Jordan Patel', email: '65005@geo-attendance.test' },
-  { userCode: '65006', name: 'Casey Brown', email: '65006@geo-attendance.test' },
-];
+// Production starts without hard-coded presentation accounts. Tests and local
+// presentation environments must opt in explicitly with SEED_DEMO_DATA=true.
+if (!seedDemoData) {
+  const demoUsers = database.prepare(
+    `SELECT id FROM users
+     WHERE email LIKE '%@geo-attendance.test'
+        OR user_code IN ('T001', '65001', '65002', '65003', '65004', '65005', '65006')`,
+  ).all().map((user) => user.id);
+  if (demoUsers.length > 0) {
+    const placeholders = demoUsers.map(() => '?').join(',');
+    database.transaction(() => {
+      const demoCourses = database.prepare(`SELECT id FROM courses WHERE teacher_id IN (${placeholders})`).all(...demoUsers).map((course) => course.id);
+      if (demoCourses.length > 0) {
+        const coursePlaceholders = demoCourses.map(() => '?').join(',');
+        database.prepare(`DELETE FROM attendance WHERE course_id IN (${coursePlaceholders})`).run(...demoCourses);
+        database.prepare(`DELETE FROM class_sessions WHERE course_id IN (${coursePlaceholders})`).run(...demoCourses);
+        database.prepare(`DELETE FROM class_schedules WHERE course_id IN (${coursePlaceholders})`).run(...demoCourses);
+        database.prepare(`DELETE FROM enrollments WHERE course_id IN (${coursePlaceholders})`).run(...demoCourses);
+        database.prepare(`DELETE FROM courses WHERE id IN (${coursePlaceholders})`).run(...demoCourses);
+      }
+      database.prepare(`DELETE FROM attendance WHERE student_id IN (${placeholders})`).run(...demoUsers);
+      database.prepare(`DELETE FROM enrollments WHERE student_id IN (${placeholders})`).run(...demoUsers);
+      database.prepare(`DELETE FROM sessions WHERE user_id IN (${placeholders})`).run(...demoUsers);
+      database.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...demoUsers);
+    })();
+  }
+}
 
-for (const demoStudent of demoStudents) {
+if (seedDemoData) {
   seedUser.run({
-    ...demoStudent,
+    userCode: 'T001',
+    name: 'Demo Teacher',
+    email: 'teacher@geo-attendance.test',
     passwordHash: hashPassword('123456'),
-    role: 'student',
+    role: 'teacher',
   });
+
+  const demoStudents = [
+    { userCode: '65001', name: 'Demo Student', email: '65001@geo-attendance.test' },
+    { userCode: '65002', name: 'Alex Morgan', email: '65002@geo-attendance.test' },
+    { userCode: '65003', name: 'Jamie Lee', email: '65003@geo-attendance.test' },
+    { userCode: '65004', name: 'Taylor Kim', email: '65004@geo-attendance.test' },
+    { userCode: '65005', name: 'Jordan Patel', email: '65005@geo-attendance.test' },
+    { userCode: '65006', name: 'Casey Brown', email: '65006@geo-attendance.test' },
+  ];
+
+  for (const demoStudent of demoStudents) {
+    seedUser.run({ ...demoStudent, passwordHash: hashPassword('123456'), role: 'student' });
+  }
 }
 
 // Upgrade legacy local demo rows that stored a plaintext password.
@@ -233,9 +267,9 @@ for (const legacyUser of legacyUsers) {
     .run('', hashPassword(legacyUser.password || '123456'), legacyUser.id);
 }
 
-const teacher = database
-  .prepare('SELECT id FROM users WHERE user_code = ?')
-  .get('T001');
+const teacher = seedDemoData
+  ? database.prepare('SELECT id FROM users WHERE user_code = ?').get('T001')
+  : null;
 
 const seedBuilding = database.prepare(`
   INSERT OR IGNORE INTO buildings (building_code, building_name, address, latitude, longitude, radius)
@@ -246,21 +280,26 @@ seedBuilding.run({
   buildingCode: '44',
   buildingName: 'Faculty of Science and Applied Technology',
   address: '1518 Pracharat Sai 1, Wong Sawang, Bang Sue, Bangkok 10800',
-  latitude: 13.8138,
-  longitude: 100.5334,
+  latitude: 13.81972,
+  longitude: 100.51553,
   radius: 50,
 });
 seedBuilding.run({
   buildingCode: '52',
   buildingName: 'Faculty of Technical Education and Industrial Technology',
   address: '1518 Pracharat Sai 1, Wong Sawang, Bang Sue, Bangkok 10800',
-  latitude: 13.8147,
-  longitude: 100.5358,
+  latitude: 13.82039,
+  longitude: 100.51512,
   radius: 50,
 });
 
 const building44 = database.prepare('SELECT id FROM buildings WHERE building_code = ?').get('44');
 const building52 = database.prepare('SELECT id FROM buildings WHERE building_code = ?').get('52');
+
+// Correct legacy coordinates only when they still contain the old reference
+// values. This preserves any deliberately verified Room Settings changes.
+database.prepare(`UPDATE buildings SET latitude = ?, longitude = ? WHERE id = ? AND latitude = ? AND longitude = ?`).run(13.81972, 100.51553, building44.id, 13.8138, 100.5334);
+database.prepare(`UPDATE buildings SET latitude = ?, longitude = ? WHERE id = ? AND latitude = ? AND longitude = ?`).run(13.82039, 100.51512, building52.id, 13.8147, 100.5358);
 
 function ensureClassroom({ roomName, roomNumber, buildingId, latitude, longitude }) {
   let classroom = database.prepare('SELECT id, room_name AS roomName FROM classrooms WHERE room_name = ?').get(roomName);
@@ -293,19 +332,22 @@ const room4401 = ensureClassroom({
   roomName: 'Room 4401',
   roomNumber: '4401',
   buildingId: building44.id,
-  latitude: 13.8138,
-  longitude: 100.5334,
+  latitude: 13.81972,
+  longitude: 100.51553,
 });
 const room5201 = ensureClassroom({
   roomName: 'Room 5201',
   roomNumber: '5201',
   buildingId: building52.id,
-  latitude: 13.8147,
-  longitude: 100.5358,
+  latitude: 13.82039,
+  longitude: 100.51512,
 });
 
+database.prepare(`UPDATE classrooms SET latitude = ?, longitude = ? WHERE building_id = ? AND latitude = ? AND longitude = ?`).run(13.81972, 100.51553, building44.id, 13.8138, 100.5334);
+database.prepare(`UPDATE classrooms SET latitude = ?, longitude = ? WHERE building_id = ? AND latitude = ? AND longitude = ?`).run(13.82039, 100.51512, building52.id, 13.8147, 100.5358);
+
 // Migrate the original demo room to the production building set while preserving attendance records.
-const legacyRoom = database.prepare('SELECT id FROM classrooms WHERE room_name = ?').get('Room 701');
+const legacyRoom = database.prepare("SELECT id FROM classrooms WHERE LOWER(TRIM(room_name)) = 'room 701'").get();
 if (legacyRoom && legacyRoom.id !== room5201.id) {
   database.transaction(() => {
       database.prepare('UPDATE attendance SET classroom_id = ? WHERE classroom_id = ?').run(room5201.id, legacyRoom.id);
@@ -314,6 +356,23 @@ if (legacyRoom && legacyRoom.id !== room5201.id) {
   })();
 }
 
+// Remove any remaining unassigned legacy room that is not referenced. The
+// historical Room 701 is migrated above so old attendance remains auditable.
+const unassignedRooms = database.prepare('SELECT id FROM classrooms WHERE building_id IS NULL').all();
+for (const room of unassignedRooms) {
+  const references = database.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM courses WHERE classroom_id = ?) AS courses,
+      (SELECT COUNT(*) FROM class_schedules WHERE classroom_id = ?) AS schedules,
+      (SELECT COUNT(*) FROM class_sessions WHERE classroom_id = ?) AS sessions,
+      (SELECT COUNT(*) FROM attendance WHERE classroom_id = ?) AS attendance
+  `).get(room.id, room.id, room.id, room.id);
+  if (Object.values(references).every((count) => Number(count) === 0)) {
+    database.prepare('DELETE FROM classrooms WHERE id = ?').run(room.id);
+  }
+}
+
+if (seedDemoData) {
 function ensureCourse(courseCode, courseName, classroomId) {
   let currentCourse = database.prepare('SELECT id FROM courses WHERE course_code = ?').get(courseCode);
   if (!currentCourse) {
@@ -491,6 +550,7 @@ if (attendanceCount.count === 0) {
 database.prepare(
   'UPDATE attendance SET session_id = ? WHERE course_id = ? AND session_date = ? AND session_id IS NULL',
 ).run(demoClassSession.id, course.id, demoSessionDate);
+}
 
 function checkDatabaseConnection() {
   const result = database.prepare('SELECT 1 AS connected').get();

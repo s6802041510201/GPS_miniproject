@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AnimatedSurface } from '@/components/AnimatedSurface';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
+import { AppIcon } from '@/components/AppIcon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { colors, radius, shadows, spacing } from '@/theme';
 
@@ -9,16 +10,20 @@ type Props = {
   isLoading: boolean;
   errorMessage: string | null;
   onLogin: (userCode: string, password: string) => void;
+  onRegister: (input: { userCode: string; name: string; email: string; password: string }) => void;
 };
 
-export function LoginScreen({ isLoading, errorMessage, onLogin }: Props) {
+export function LoginScreen({ isLoading, errorMessage, onLogin, onRegister }: Props) {
   const [portal, setPortal] = useState<'student' | 'teacher'>('student');
-  const [userCode, setUserCode] = useState('65001');
-  const [password, setPassword] = useState('123456');
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [userCode, setUserCode] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   function selectPortal(nextPortal: 'student' | 'teacher') {
     setPortal(nextPortal);
-    setUserCode(nextPortal === 'student' ? '65001' : 'T001');
+    setMode('login');
   }
 
   return (
@@ -30,18 +35,26 @@ export function LoginScreen({ isLoading, errorMessage, onLogin }: Props) {
       <DecorativeBackdrop />
 
       <AnimatedSurface delay={40} style={styles.brandBlock}>
-        <Text style={styles.eyebrow}>GPS ATTENDANCE</Text>
-        <Text style={styles.title}>Geo-Attendance</Text>
-        <Text style={styles.subtitle}>
-          Check in when you are inside the classroom area.
-        </Text>
+        <View style={styles.brandRow}>
+          <View style={styles.brandMark}><AppIcon color={colors.surface} name="location" size={28} /></View>
+          <View style={styles.brandCopy}>
+            <Text style={styles.eyebrow}>GPS ATTENDANCE</Text>
+            <Text style={styles.title}>Geo-Attendance</Text>
+          </View>
+        </View>
+        <Text style={styles.subtitle}>Location-based attendance for secure classroom check-in.</Text>
       </AnimatedSurface>
 
       <AnimatedSurface delay={120} style={styles.card}>
-        <Text style={styles.heading}>Welcome</Text>
-        <Text style={styles.helper}>Sign in to continue</Text>
+        <View style={styles.cardHeading}>
+          <View>
+            <Text style={styles.heading}>{mode === 'register' ? 'Create student account' : 'Welcome back'}</Text>
+            <Text style={styles.helper}>{mode === 'register' ? 'Register with your real student information.' : 'Sign in to continue'}</Text>
+          </View>
+          <View style={styles.secureBadge}><AppIcon color={colors.accentDark} name="lock" size={17} /><Text style={styles.secureText}>Secure</Text></View>
+        </View>
 
-        <View accessibilityRole="tablist" style={styles.portalSelector}>
+        {mode === 'login' ? <View accessibilityRole="tablist" style={styles.portalSelector}>
           {(['student', 'teacher'] as const).map((item) => {
             const selected = portal === item;
             return (
@@ -52,48 +65,58 @@ export function LoginScreen({ isLoading, errorMessage, onLogin }: Props) {
                 onPress={() => selectPortal(item)}
                 style={({ pressed }) => [styles.portalOption, selected && styles.portalOptionSelected, pressed && styles.portalPressed]}
               >
-                <Text style={[styles.portalLabel, selected && styles.portalLabelSelected]}>{item === 'student' ? 'Student' : 'Teacher'}</Text>
+                <View style={styles.portalContent}>
+                  <AppIcon color={selected ? colors.surface : colors.accentDark} name={item === 'student' ? 'profile' : 'students'} size={17} />
+                  <Text style={[styles.portalLabel, selected && styles.portalLabelSelected]}>{item === 'student' ? 'Student' : 'Teacher'}</Text>
+                </View>
               </Pressable>
             );
           })}
-        </View>
+        </View> : null}
+
+        {mode === 'register' ? <>
+          <View style={styles.fieldGroup}><Text style={styles.label}>Full name</Text><View style={styles.inputShell}><AppIcon color={colors.accent} name="profile" size={19} /><TextInput autoCapitalize="words" onChangeText={setName} placeholder="Your full name" style={styles.input} value={name} /></View></View>
+          <View style={styles.fieldGroup}><Text style={styles.label}>Email</Text><View style={styles.inputShell}><AppIcon color={colors.accent} name="login" size={19} /><TextInput autoCapitalize="none" keyboardType="email-address" onChangeText={setEmail} placeholder="name@example.com" style={styles.input} value={email} /></View></View>
+        </> : null}
 
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>{portal === 'student' ? 'Student ID' : 'Teacher ID'}</Text>
-          <TextInput
-            autoCapitalize="none"
-            autoCorrect={false}
-            onChangeText={setUserCode}
-            placeholder={portal === 'student' ? 'e.g. 65001' : 'e.g. T001'}
-            style={styles.input}
-            value={userCode}
-          />
+          <View style={styles.inputShell}>
+            <AppIcon color={colors.accent} name={portal === 'student' ? 'profile' : 'students'} size={19} />
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setUserCode}
+              placeholder={portal === 'student' ? 'Student ID' : 'Teacher ID'}
+              style={styles.input}
+              value={userCode}
+            />
+          </View>
         </View>
 
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            onChangeText={setPassword}
-            placeholder="Enter password"
-            secureTextEntry
-            style={styles.input}
-            value={password}
-          />
+          <Text style={styles.label}>{mode === 'register' ? 'Password (8+ characters)' : 'Password'}</Text>
+          <View style={styles.inputShell}>
+            <AppIcon color={colors.accent} name="lock" size={19} />
+            <TextInput
+              onChangeText={setPassword}
+              placeholder="Enter password"
+              secureTextEntry
+              style={styles.input}
+              value={password}
+            />
+          </View>
         </View>
 
-        {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
+        {errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
 
         <PrimaryButton
-          disabled={isLoading || !userCode.trim() || !password}
-          label={isLoading ? 'Signing in...' : 'Login'}
-          onPress={() => onLogin(userCode.trim(), password)}
+          disabled={isLoading || !userCode.trim() || !password || (mode === 'register' && (!name.trim() || !email.trim() || password.length < 8))}
+          icon="login"
+          label={isLoading ? (mode === 'register' ? 'Creating account...' : 'Signing in...') : mode === 'register' ? 'Create account' : 'Login'}
+          onPress={() => mode === 'register' ? onRegister({ userCode: userCode.trim(), name: name.trim(), email: email.trim(), password }) : onLogin(userCode.trim(), password)}
         />
-      </AnimatedSurface>
-
-      <AnimatedSurface delay={200} style={styles.demoCard}>
-        <Text style={styles.demoTitle}>Demo accounts</Text>
-        <Text style={styles.demoText}>Student: 65001 / 123456</Text>
-        <Text style={styles.demoText}>Teacher: T001 / 123456</Text>
+        <Pressable accessibilityRole="button" onPress={() => setMode(mode === 'register' ? 'login' : 'register')} style={styles.modeSwitch}><Text style={styles.modeSwitchText}>{mode === 'register' ? 'Already have an account? Sign in' : 'New student? Create an account'}</Text></Pressable>
       </AnimatedSurface>
     </ScrollView>
   );
@@ -101,24 +124,31 @@ export function LoginScreen({ isLoading, errorMessage, onLogin }: Props) {
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1, gap: spacing.xl, justifyContent: 'center', padding: spacing.xl, backgroundColor: colors.canvas },
-  brandBlock: { gap: spacing.sm },
-  eyebrow: { color: colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 1.4 },
-  title: { color: colors.text, fontSize: 36, fontWeight: '800' },
-  subtitle: { color: colors.body, fontSize: 16, lineHeight: 24 },
-  card: { gap: spacing.lg, borderRadius: radius.lg, padding: 20, backgroundColor: colors.surface, boxShadow: shadows.card },
-  heading: { color: colors.text, fontSize: 22, fontWeight: '800' },
+  brandBlock: { gap: spacing.md },
+  brandRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.md },
+  brandMark: { alignItems: 'center', backgroundColor: colors.accent, borderRadius: radius.md, boxShadow: '0 6px 14px rgba(37, 99, 235, 0.25)', height: 54, justifyContent: 'center', width: 54 },
+  brandCopy: { flex: 1, gap: spacing.xs },
+  eyebrow: { color: colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1.6 },
+  title: { color: colors.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5 },
+  subtitle: { color: colors.body, fontSize: 15, lineHeight: 22, maxWidth: 360 },
+  card: { gap: spacing.lg, borderColor: '#E2E8F0', borderRadius: radius.lg, borderWidth: 1, padding: 20, backgroundColor: colors.surface, boxShadow: shadows.card },
+  cardHeading: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
+  heading: { color: colors.text, fontSize: 23, fontWeight: '800' },
   helper: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  secureBadge: { alignItems: 'center', backgroundColor: colors.successSoft, borderRadius: radius.pill, flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  secureText: { color: colors.success, fontSize: 11, fontWeight: '800' },
   portalSelector: { flexDirection: 'row', gap: spacing.xs, borderRadius: radius.pill, padding: spacing.xs, backgroundColor: colors.accentPale },
-  portalOption: { alignItems: 'center', flex: 1, minHeight: 42, justifyContent: 'center', borderRadius: radius.pill },
+  portalOption: { alignItems: 'center', flex: 1, minHeight: 46, justifyContent: 'center', borderRadius: radius.pill },
   portalOptionSelected: { backgroundColor: colors.accent },
   portalPressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
+  portalContent: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
   portalLabel: { color: colors.accentDark, fontSize: 13, fontWeight: '800' },
   portalLabelSelected: { color: colors.surface },
   fieldGroup: { gap: spacing.sm },
-  label: { color: '#334155', fontSize: 13, fontWeight: '700' },
-  input: { borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, color: colors.text, fontSize: 16, paddingHorizontal: 14, paddingVertical: 12 },
-  error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
-  demoCard: { gap: 6, borderRadius: radius.md, padding: spacing.lg, backgroundColor: colors.accentPale },
-  demoTitle: { color: '#1E3A8A', fontSize: 13, fontWeight: '800' },
-  demoText: { color: '#1E3A8A', fontSize: 13 },
+  label: { color: colors.text, fontSize: 13, fontWeight: '800' },
+  inputShell: { alignItems: 'center', borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, flexDirection: 'row', gap: spacing.sm, minHeight: 52, paddingHorizontal: spacing.md },
+  input: { color: colors.text, flex: 1, fontSize: 16, paddingVertical: 12 },
+  error: { backgroundColor: colors.dangerSoft, borderRadius: radius.sm, color: colors.danger, fontSize: 14, lineHeight: 20, padding: spacing.md },
+  modeSwitch: { alignItems: 'center', paddingVertical: spacing.sm },
+  modeSwitchText: { color: colors.accentDark, fontSize: 13, fontWeight: '800' },
 });

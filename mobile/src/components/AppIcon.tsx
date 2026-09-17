@@ -1,20 +1,30 @@
-import { StyleSheet, View } from 'react-native';
+import { SymbolView, SymbolViewProps } from 'expo-symbols';
 import { colors } from '@/theme';
 
 export type IconName =
   | 'analytics'
   | 'back'
   | 'calendar'
+  | 'cancel'
   | 'check'
+  | 'chevronDown'
   | 'close'
   | 'dashboard'
+  | 'delete'
+  | 'edit'
   | 'history'
   | 'home'
+  | 'location'
+  | 'lock'
+  | 'login'
+  | 'logout'
   | 'map'
   | 'menu'
+  | 'plus'
   | 'profile'
   | 'refresh'
   | 'rooms'
+  | 'save'
   | 'sessions'
   | 'settings'
   | 'students';
@@ -23,83 +33,50 @@ type Props = {
   name: IconName;
   size?: number;
   color?: string;
+  weight?: SymbolViewProps['weight'];
 };
 
-export function AppIcon({ name, size = 22, color = colors.accentDark }: Props) {
-  const stroke = Math.max(2, Math.round(size * 0.1));
-  const line = { backgroundColor: color, borderRadius: size };
-  const lineStyle = { ...line, height: stroke, width: size * 0.72 };
+type IconDefinition = NonNullable<SymbolViewProps['name']>;
 
-  if (name === 'menu') {
-    return <View style={[styles.icon, { height: size, width: size, gap: size * 0.14 }]}><View style={lineStyle} /><View style={lineStyle} /><View style={lineStyle} /></View>;
-  }
+// Keep one semantic icon map for every platform. SF Symbols are used on iOS,
+// while expo-symbols resolves the matching Material symbol on Android/Web.
+const icons: Record<IconName, IconDefinition> = {
+  analytics: { ios: 'chart.pie.fill', android: 'analytics', web: 'analytics' },
+  back: { ios: 'arrow.left', android: 'arrow_back', web: 'arrow_back' },
+  calendar: { ios: 'calendar', android: 'calendar_month', web: 'calendar_month' },
+  cancel: { ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' },
+  check: { ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' },
+  chevronDown: { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' },
+  close: { ios: 'xmark', android: 'close', web: 'close' },
+  dashboard: { ios: 'square.grid.2x2.fill', android: 'dashboard', web: 'dashboard' },
+  delete: { ios: 'trash', android: 'delete', web: 'delete' },
+  edit: { ios: 'pencil', android: 'edit', web: 'edit' },
+  history: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' },
+  home: { ios: 'house.fill', android: 'home', web: 'home' },
+  location: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
+  lock: { ios: 'lock.fill', android: 'lock', web: 'lock' },
+  login: { ios: 'arrow.right.circle.fill', android: 'login', web: 'login' },
+  logout: { ios: 'rectangle.portrait.and.arrow.right', android: 'logout', web: 'logout' },
+  map: { ios: 'map.fill', android: 'map', web: 'map' },
+  menu: { ios: 'line.3.horizontal', android: 'menu', web: 'menu' },
+  plus: { ios: 'plus', android: 'add', web: 'add' },
+  profile: { ios: 'person.crop.circle.fill', android: 'account_circle', web: 'account_circle' },
+  refresh: { ios: 'arrow.clockwise', android: 'refresh', web: 'refresh' },
+  rooms: { ios: 'building.2.fill', android: 'domain', web: 'domain' },
+  save: { ios: 'checkmark.circle', android: 'save', web: 'save' },
+  sessions: { ios: 'calendar.badge.clock', android: 'event_note', web: 'event_note' },
+  settings: { ios: 'gearshape.fill', android: 'settings', web: 'settings' },
+  students: { ios: 'person.3.fill', android: 'groups', web: 'groups' },
+};
 
-  if (name === 'refresh' || name === 'history') {
-    return (
-      <View style={[styles.icon, { height: size, width: size }]}>
-        <View style={[styles.circle, { borderColor: color, borderWidth: stroke, height: size * 0.68, width: size * 0.68 }]} />
-        <View style={[styles.arrowHead, { borderBottomColor: color, borderRightColor: color, borderBottomWidth: stroke, borderRightWidth: stroke, height: size * 0.22, width: size * 0.22, right: size * 0.03, top: size * 0.09, transform: [{ rotate: '22deg' }] }]} />
-        <View style={[line, { height: stroke, position: 'absolute', right: size * 0.02, top: size * 0.07, transform: [{ rotate: '8deg' }], width: size * 0.28 }]} />
-      </View>
-    );
-  }
-
-  if (name === 'back') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[line, { height: stroke, position: 'absolute', right: size * 0.08, width: size * 0.62 }]} /><View style={[styles.chevron, { borderBottomColor: color, borderLeftColor: color, borderBottomWidth: stroke, borderLeftWidth: stroke, height: size * 0.34, left: size * 0.12, transform: [{ rotate: '45deg' }], width: size * 0.34 }]} /></View>;
-  }
-
-  if (name === 'close') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[line, { position: 'absolute', transform: [{ rotate: '45deg' }], width: size * 0.78 }]} /><View style={[line, { position: 'absolute', transform: [{ rotate: '-45deg' }], width: size * 0.78 }]} /></View>;
-  }
-
-  if (name === 'check') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[line, { height: stroke, position: 'absolute', left: size * 0.13, transform: [{ rotate: '45deg' }], width: size * 0.32 }]} /><View style={[line, { height: stroke, position: 'absolute', left: size * 0.31, transform: [{ rotate: '-45deg' }], width: size * 0.55 }]} /></View>;
-  }
-
-  if (name === 'home') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[styles.roof, { borderBottomColor: color, borderBottomWidth: size * 0.34, borderLeftWidth: size * 0.35, borderRightWidth: size * 0.35, left: size * 0.15, top: size * 0.03 }]} /><View style={[styles.house, { borderColor: color, borderWidth: stroke, bottom: size * 0.1, height: size * 0.42, left: size * 0.25, width: size * 0.5 }]} /><View style={[styles.door, { backgroundColor: color, bottom: size * 0.1, height: size * 0.24, left: size * 0.43, width: stroke }]} /></View>;
-  }
-
-  if (name === 'map') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[styles.mapPanel, { borderColor: color, borderWidth: stroke, height: size * 0.6, width: size * 0.72 }]} /><View style={[line, { height: stroke * 0.7, position: 'absolute', transform: [{ rotate: '68deg' }], width: size * 0.5 }]} /><View style={[line, { height: stroke * 0.7, position: 'absolute', transform: [{ rotate: '-68deg' }], width: size * 0.5 }]} /></View>;
-  }
-
-  if (name === 'profile' || name === 'students') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[styles.head, { backgroundColor: color, height: size * 0.27, top: size * 0.08, width: size * 0.27 }]} /><View style={[styles.shoulders, { borderColor: color, borderWidth: stroke, bottom: size * 0.08, height: size * 0.35, width: size * 0.62 }]} />{name === 'students' ? <View style={[styles.smallHead, { backgroundColor: color, height: size * 0.16, right: size * 0.04, top: size * 0.2, width: size * 0.16 }]} /> : null}</View>;
-  }
-
-  if (name === 'calendar' || name === 'sessions') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[styles.calendar, { borderColor: color, borderWidth: stroke, borderRadius: size * 0.12, height: size * 0.65, width: size * 0.68 }]} /><View style={[line, { position: 'absolute', top: size * 0.27, width: size * 0.56 }]} /><View style={[line, { position: 'absolute', top: size * 0.13, width: stroke, height: size * 0.14 }]} /><View style={[line, { position: 'absolute', right: size * 0.25, top: size * 0.13, width: stroke, height: size * 0.14 }]} />{name === 'sessions' ? <View style={[line, { bottom: size * 0.2, height: stroke, width: size * 0.18 }]} /> : null}</View>;
-  }
-
-  if (name === 'analytics') {
-    return <View style={[styles.icon, { alignItems: 'flex-end', flexDirection: 'row', gap: size * 0.1, height: size, justifyContent: 'center', width: size }]}><View style={[line, { height: size * 0.35, width: size * 0.16 }]} /><View style={[line, { height: size * 0.58, width: size * 0.16 }]} /><View style={[line, { height: size * 0.8, width: size * 0.16 }]} /></View>;
-  }
-
-  if (name === 'dashboard') {
-    return <View style={[styles.icon, { flexDirection: 'row', flexWrap: 'wrap', gap: size * 0.1, height: size * 0.72, width: size * 0.72 }]}>{[0, 1, 2, 3].map((item) => <View key={item} style={[line, { borderRadius: size * 0.08, height: size * 0.28, width: size * 0.28 }]} />)}</View>;
-  }
-
-  if (name === 'settings') {
-    return <View style={[styles.icon, { height: size, width: size }]}><View style={[styles.gear, { borderColor: color, borderWidth: stroke, height: size * 0.58, width: size * 0.58 }]} /><View style={[styles.gearCenter, { backgroundColor: color, height: size * 0.16, width: size * 0.16 }]} /></View>;
-  }
-
-  return <View style={[styles.icon, { height: size, width: size }]} />;
+export function AppIcon({ name, size = 22, color = colors.accentDark, weight = 'semibold' }: Props) {
+  return (
+    <SymbolView
+      name={icons[name]}
+      resizeMode="scaleAspectFit"
+      size={size}
+      tintColor={color}
+      weight={weight}
+    />
+  );
 }
-
-const styles = StyleSheet.create({
-  icon: { alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  arrowHead: { position: 'absolute' },
-  calendar: { position: 'absolute' },
-  circle: { borderRadius: 999, position: 'absolute' },
-  chevron: { position: 'absolute' },
-  door: { position: 'absolute' },
-  gear: { borderRadius: 999 },
-  gearCenter: { borderRadius: 999, position: 'absolute' },
-  head: { borderRadius: 999, position: 'absolute' },
-  house: { position: 'absolute' },
-  mapPanel: { position: 'absolute' },
-  roof: { height: 0, position: 'absolute', width: 0 },
-  shoulders: { borderRadius: 999, position: 'absolute' },
-  smallHead: { borderRadius: 999, position: 'absolute' },
-});

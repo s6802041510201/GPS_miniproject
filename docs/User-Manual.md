@@ -1,10 +1,10 @@
 # Geo-Attendance User Manual
 
-## Demo accounts
+## Presentation access
 
 ```text
-Student: 65001 / 123456
-Teacher: T001 / 123456
+Student: Create an account from the sign-in screen, or use an account provisioned by the university.
+Teacher: Use the teacher account provisioned by the system administrator.
 ```
 
 ## Student flow

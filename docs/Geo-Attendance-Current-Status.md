@@ -159,27 +159,23 @@ The following values were read from the current local SQLite database during the
 
 | Entity | Current count |
 |---|---:|
-| Students | 6 |
-| Teachers | 1 |
+| Students | 0 |
+| Teachers | 0 |
 | Buildings | 2 |
-| Classrooms | 3 |
-| Courses | 2 |
-| Weekly schedules | 2 |
-| Teacher-controlled sessions | 1 |
-| Enrollments | 12 |
-| Attendance records | 13 |
+| Classrooms | 2 |
+| Courses | 0 |
+| Weekly schedules | 0 |
+| Teacher-controlled sessions | 0 |
+| Enrollments | 0 |
+| Attendance records | 0 |
 
-### Demo accounts
+### Account management
 
 ```text
-Student ID: 65001
-Password: 123456
-
-Teacher ID: T001
-Password: 123456
+Production: no hard-coded demo accounts
+Student: self-registration is available from the mobile sign-in screen
+Teacher: provision with server/scripts/create-user.js
 ```
-
-Additional demo students use IDs `65002` through `65006` with password `123456`.
 
 ### Courses
 
@@ -192,17 +188,17 @@ Additional demo students use IDs `65002` through `65006` with password `123456`.
 
 ```text
 Building 44
-Latitude: 13.8138
-Longitude: 100.5334
+Latitude: 13.81972
+Longitude: 100.51553
 Radius: 50 m
 
 Building 52
-Latitude: 13.8147
-Longitude: 100.5358
+Latitude: 13.82039
+Longitude: 100.51512
 Radius: 50 m
 ```
 
-These coordinates are currently **UNVERIFIED** and require confirmation from an authoritative KMUTNB source.
+These are verified building-level references and still require field confirmation with a phone before production enforcement. See `docs/KMUTNB-Coordinate-Verification.md`.
 
 ### Current classroom mappings
 
@@ -210,25 +206,19 @@ These coordinates are currently **UNVERIFIED** and require confirmation from an 
 Room 702
 Building 44
 Room number: 4401
-Latitude: 13.8138
-Longitude: 100.5334
+Latitude: 13.81972
+Longitude: 100.51553
 Radius: 50 m
 
 Room 211
 Building 52
 Room number: 5201
-Latitude: 13.8147
-Longitude: 100.5358
+Latitude: 13.82039
+Longitude: 100.51512
 Radius: 50 m
-
-room 701
-Legacy unassigned room
-Latitude: 13.7777
-Longitude: 100.5888
-Radius: 30 m
 ```
 
-The legacy `room 701` record is not assigned to a building and should be cleaned up before production use.
+The legacy unassigned `room 701` record is migrated to the canonical mapped room when it has historical references, or removed when it is unused.
 
 ### Current controlled session
 
@@ -441,33 +431,33 @@ Tested areas:
 
 ## Known Limitations
 
-- The application currently uses demo accounts.
-- Demo credentials are not suitable for production.
-- Building 44 and 52 coordinates require authoritative verification.
+- Production no longer seeds hard-coded demo accounts.
+- Building 44 and 52 references were corrected and documented; field verification remains required.
 - GPS spoofing detection is not implemented.
 - Physical Android testing is not verified.
 - Physical iPhone testing is not verified.
 - Native map behavior has not been verified on physical devices.
 - Backend deployment and HTTPS are not configured.
 - EAS project configuration and signing are not configured.
-- Teacher report date filters are not implemented.
-- Attendance correction is not implemented.
+- Teacher dashboard and attendance history date filters are implemented.
+- Teacher attendance correction is implemented with audit source and reason.
+- Closed/cancelled session metadata correction is available within the configured grace period.
+- Student Map Check-in includes manual GPS refresh.
 - Attendance export is not implemented.
-- The local database contains an unassigned legacy classroom record.
-- The local database contains 13 attendance records and may not represent a clean reset demo state.
+- Local databases created with `SEED_DEMO_DATA=false` remove the legacy presentation accounts and unassigned unused classrooms.
 
 ## Recommended Next Steps
 
-1. Verify Building 44 and Building 52 coordinates from an authoritative KMUTNB source.
-2. Remove or assign the legacy unassigned classroom record.
+1. Field-verify Building 44 and Building 52 coordinates on the intended classroom entrances.
+2. Provision real teacher accounts and let students register with university credentials.
 3. Test Student and Teacher flows on a real Android phone.
 4. Test Student and Teacher flows on a real iPhone.
 5. Deploy the backend using HTTPS.
 6. Configure the production `EXPO_PUBLIC_API_URL`.
 7. Configure EAS project, signing, and preview builds.
-8. Add attendance date filters, correction, and export.
+8. Add attendance export.
 9. Add ESLint and CI checks.
-10. Replace demo credentials before any production deployment.
+10. Review production secrets, HTTPS, backups, and account retention policies.
 
 ## Git Status
 
@@ -487,4 +477,4 @@ The latest Teacher-controlled Session implementation and current documentation c
 - [Production-Readiness-Plan.md](Production-Readiness-Plan.md)
 - [Test-Cases.md](Test-Cases.md)
 - [User-Manual.md](User-Manual.md)
-- [Presentation-Demo-Script.md](Presentation-Demo-Script.md)
+- [Presentation-Script.md](Presentation-Script.md)

@@ -75,6 +75,7 @@ export function StudentHomeScreen({
                 </Text>
                 <PrimaryButton
                   disabled={alreadyCheckedIn || course.checkInAllowed === false || checkingCourseId === course.id}
+                  icon="location"
                   label={getCheckInLabel(course, alreadyCheckedIn, checkingCourseId === course.id)}
                   onPress={() => onCheckIn(course)}
                 />
@@ -85,8 +86,8 @@ export function StudentHomeScreen({
       ) : null}
 
       <View style={styles.actions}>
-        <PrimaryButton label="Attendance history" onPress={onHistory} variant="secondary" />
-        <PrimaryButton label="Profile" onPress={onProfile} variant="secondary" />
+        <PrimaryButton icon="history" label="Attendance history" onPress={onHistory} variant="secondary" />
+        <PrimaryButton icon="profile" label="Profile" onPress={onProfile} variant="secondary" />
         <IconButton icon="refresh" label="Refresh student courses" onPress={onRefresh} />
       </View>
 
@@ -132,10 +133,11 @@ export function StudentHomeScreen({
             </View>
             <PrimaryButton
               disabled={alreadyCheckedIn || course.checkInAllowed === false || checkingCourseId === course.id}
+              icon="location"
               label={getCheckInLabel(course, alreadyCheckedIn, checkingCourseId === course.id)}
               onPress={() => onCheckIn(course)}
             />
-            <PrimaryButton label="Course details" onPress={() => onLocation(course)} variant="secondary" />
+            <PrimaryButton icon="map" label="Course details" onPress={() => onLocation(course)} variant="secondary" />
           </AnimatedSurface>
         );
       })}

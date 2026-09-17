@@ -88,11 +88,11 @@ export function NavigationBar<Key extends string>({ items, selected, onSelect }:
 function getIconName(label: string): IconName {
   const icons: Record<string, IconName> = {
     Analytics: 'analytics',
-    Dashboard: 'home',
-    History: 'calendar',
+    Dashboard: 'dashboard',
+    History: 'history',
     Home: 'home',
     Profile: 'profile',
-    Rooms: 'map',
+    Rooms: 'rooms',
     Sessions: 'sessions',
     Settings: 'settings',
     Students: 'students',
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   item: { alignItems: 'center', borderRadius: radius.pill, flexDirection: 'row', gap: spacing.md, justifyContent: 'flex-start', minHeight: 48, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, width: '100%' },
   selectedItem: { backgroundColor: '#BFE7FF' },
   label: { color: colors.accentDark, fontSize: 14, fontWeight: '800', lineHeight: 18, textAlign: 'left' },
-  selectedLabel: { color: colors.surface },
+  selectedLabel: { color: colors.accentDark },
   hamburgerButton: { alignItems: 'center', alignSelf: 'flex-start', height: 44, justifyContent: 'center', width: 44 },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

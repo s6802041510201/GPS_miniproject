@@ -147,7 +147,7 @@
 
 - Haversine distance calculation: PASS.
 - Radius boundary behavior: PASS. Points at or inside the radius are accepted; points outside are rejected.
-- Poor accuracy handling: PASS for values below 0 or above 100 meters.
+- Poor accuracy handling: PASS for values below 0 or above the configured 150-meter limit.
 - Permission denied and disabled location services: Implemented in mobile code; NOT VERIFIED on a physical device.
 - Location unavailable and native timeout behavior: NOT VERIFIED on a physical device.
 - Duplicate attendance: PASS through a database uniqueness constraint and API conflict handling.

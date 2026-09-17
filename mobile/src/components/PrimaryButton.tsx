@@ -1,4 +1,5 @@
-import { Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
+import { Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { AppIcon, IconName } from '@/components/AppIcon';
 import { colors, radius, spacing } from '@/theme';
 
 type Props = {
@@ -6,10 +7,11 @@ type Props = {
   onPress: () => void;
   disabled?: boolean;
   variant?: 'primary' | 'secondary' | 'danger';
+  icon?: IconName;
   style?: StyleProp<ViewStyle>;
 };
 
-export function PrimaryButton({ label, onPress, disabled = false, variant = 'primary', style }: Props) {
+export function PrimaryButton({ label, onPress, disabled = false, variant = 'primary', icon, style }: Props) {
   return (
     <Pressable
       accessibilityLabel={label}
@@ -26,7 +28,10 @@ export function PrimaryButton({ label, onPress, disabled = false, variant = 'pri
         style,
       ]}
     >
-      <Text style={[styles.label, variant === 'secondary' && styles.secondaryLabel]}>{label}</Text>
+      <View style={styles.content}>
+        {icon ? <AppIcon color={variant === 'secondary' ? colors.accentDark : colors.surface} name={icon} size={18} /> : null}
+        <Text style={[styles.label, variant === 'secondary' && styles.secondaryLabel]}>{label}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -46,6 +51,7 @@ const styles = StyleSheet.create({
   danger: { backgroundColor: colors.danger, borderColor: '#991B1B' },
   label: { color: colors.surface, fontSize: 15, fontWeight: '800', textAlign: 'center' },
   secondaryLabel: { color: '#1E3A8A' },
+  content: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, justifyContent: 'center' },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

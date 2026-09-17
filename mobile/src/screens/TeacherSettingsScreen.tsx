@@ -15,14 +15,14 @@ export function TeacherSettingsScreen({ user, onNavigate, onLogout }: Props) {
       <DecorativeBackdrop />
       <ScreenHeader subtitle={`Teacher ID: ${user.userCode}`} title="Settings" />
       <View style={styles.card}>
-        <Text style={styles.title}>Demo configuration</Text>
+        <Text style={styles.title}>System configuration</Text>
         <Text style={styles.item}>Interface language: English</Text>
         <Text style={styles.item}>Backend geofencing: Enabled</Text>
-        <Text style={styles.item}>GPS accuracy threshold: 100 m</Text>
+        <Text style={styles.item}>GPS accuracy threshold: 150 m (configurable)</Text>
         <Text style={styles.item}>Duplicate check-in protection: Enabled</Text>
       </View>
-      <Text style={styles.note}>Authentication and notification settings can be added after the core demo is stable.</Text>
-      <PrimaryButton label="Log out" onPress={onLogout} variant="danger" />
+      <Text style={styles.note}>Authentication and notification settings can be configured in the next release.</Text>
+      <PrimaryButton icon="logout" label="Log out" onPress={onLogout} variant="danger" />
       </ScrollView>
       <NavigationBar
         items={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'sessions', label: 'Sessions' }, { key: 'students', label: 'Students' }, { key: 'classrooms', label: 'Rooms' }, { key: 'statistics', label: 'Analytics' }, { key: 'settings', label: 'Settings' }]}

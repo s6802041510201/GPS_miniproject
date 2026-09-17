@@ -4,6 +4,7 @@ import { IconButton } from '@/components/IconButton';
 import { NavigationBar } from '@/components/NavigationBar';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { DateFilter } from '@/components/DateFilter';
 import { Course, DashboardResponse } from '@/services/api';
 import { colors, navigation, radius, shadows, spacing } from '@/theme';
 
@@ -13,10 +14,12 @@ type Props = {
   isLoading: boolean;
   errorMessage: string | null;
   onRefresh: () => void;
+  selectedDate: string;
+  onDateChange: (date: string) => void;
   onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings' | 'sessions') => void;
 };
 
-export function TeacherStatisticsScreen({ course, dashboard, isLoading, errorMessage, onRefresh, onNavigate }: Props) {
+export function TeacherStatisticsScreen({ course, dashboard, isLoading, errorMessage, onRefresh, selectedDate, onDateChange, onNavigate }: Props) {
   const summary = dashboard?.summary;
   const rate = summary?.attendanceRate ?? 0;
 
@@ -25,6 +28,7 @@ export function TeacherStatisticsScreen({ course, dashboard, isLoading, errorMes
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
       <DecorativeBackdrop />
       <ScreenHeader subtitle={course?.courseName ?? 'Course analytics'} title="Attendance analytics" />
+      <DateFilter value={selectedDate} onChange={onDateChange} />
       <IconButton icon="refresh" label="Refresh analytics" onPress={onRefresh} />
       {isLoading ? <Text style={styles.muted}>Loading attendance analytics...</Text> : null}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
@@ -48,7 +52,7 @@ export function TeacherStatisticsScreen({ course, dashboard, isLoading, errorMes
       </View>
       <View style={styles.chartCard}>
         <View style={styles.chartHeader}>
-          <View><Text style={styles.chartTitle}>Today&apos;s attendance</Text><Text style={styles.chartSubtitle}>Status distribution</Text></View>
+          <View><Text style={styles.chartTitle}>Attendance for {selectedDate}</Text><Text style={styles.chartSubtitle}>Status distribution</Text></View>
           <Text style={styles.chartTotal}>{summary?.totalStudents ?? 0} students</Text>
         </View>
         <View style={styles.chart}>
@@ -57,7 +61,7 @@ export function TeacherStatisticsScreen({ course, dashboard, isLoading, errorMes
           <ChartBar label="Absent" value={summary?.absentCount ?? 0} total={summary?.totalStudents ?? 0} tone="absent" />
         </View>
       </View>
-      <Text style={styles.note}>Attendance rate includes students marked Present or Late. Statistics are calculated from course enrollments and today&apos;s attendance records.</Text>
+      <Text style={styles.note}>Attendance rate includes students marked Present or Late. Statistics are calculated from course enrollments and the selected date&apos;s attendance records.</Text>
       </ScrollView>
       <NavigationBar
         items={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'sessions', label: 'Sessions' }, { key: 'students', label: 'Students' }, { key: 'classrooms', label: 'Rooms' }, { key: 'statistics', label: 'Analytics' }, { key: 'settings', label: 'Settings' }]}

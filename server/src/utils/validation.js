@@ -10,12 +10,17 @@ function isValidRadius(value) {
   return Number.isFinite(value) && value > 0;
 }
 
-function isValidAccuracy(value) {
-  return Number.isFinite(value) && value >= 0 && value <= 100;
+function getGpsAccuracyLimit() {
+  const configuredLimit = Number(process.env.GPS_ACCURACY_LIMIT_METERS);
+  return Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : 150;
+}
+
+function isValidAccuracy(value, limit = getGpsAccuracyLimit()) {
+  return Number.isFinite(value) && value >= 0 && value <= limit;
 }
 
 function isValidId(value) {
   return Number.isInteger(value) && value > 0;
 }
 
-module.exports = { isValidAccuracy, isValidId, isValidLatitude, isValidLongitude, isValidRadius };
+module.exports = { getGpsAccuracyLimit, isValidAccuracy, isValidId, isValidLatitude, isValidLongitude, isValidRadius };

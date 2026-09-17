@@ -25,7 +25,7 @@ SCHEDULED -> OPEN -> CLOSED
 7. Select `Close check-in` when attendance should stop.
 8. Use `Cancel` for a session that will not take place.
 
-Only the teacher who owns the course can create, edit, open, close, cancel, or delete its sessions. Scheduled sessions can be edited directly. Opened sessions must be confirmed before closing or cancelling. Closed and cancelled sessions are read-only; teachers can use `Edit as new` to create a corrected replacement without changing the audit record. A closed or cancelled session can be deleted only when it has no attendance records.
+Only the teacher who owns the course can create, edit, open, close, cancel, or delete its sessions. Scheduled sessions can be edited directly. Opened sessions must be confirmed before closing or cancelling. Closed and cancelled sessions can be corrected during the configured `SESSION_EDIT_GRACE_MINUTES` window (30 minutes by default); after that they are read-only. A closed or cancelled session can be deleted only when it has no attendance records.
 
 ## Student validation
 

@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ApiError, AttendanceRecord, ClassSession, Classroom, Course, DashboardResponse, SessionInput, User, checkIn, controlTeacherSession, createTeacherSession, deleteClassroom, deleteTeacherSession, fetchAttendance, fetchClassrooms, fetchCourses, fetchDashboard, fetchCurrentUser, fetchTeacherCourses, fetchTeacherSessions, login as loginApi, logout as logoutApi, persistAuthToken, removePersistedAuthToken, restoreAuthToken, saveClassroom, updateTeacherSession } from '@/services/api';
+import { ApiError, AttendanceRecord, ClassSession, Classroom, Course, DashboardResponse, SessionInput, User, checkIn, controlTeacherSession, createTeacherCourse, createTeacherSession, deleteClassroom, deleteTeacherSession, fetchAttendance, fetchClassrooms, fetchCourses, fetchDashboard, fetchCurrentUser, fetchTeacherCourses, fetchTeacherSessions, login as loginApi, logout as logoutApi, persistAuthToken, registerStudent, removePersistedAuthToken, restoreAuthToken, saveClassroom, updateTeacherSession } from '@/services/api';
 import { calculateDistanceInMeters } from '@/utils/distance';
 import { AttendanceHistoryScreen } from '@/screens/AttendanceHistoryScreen';
 import { ClassroomManagementScreen } from '@/screens/ClassroomManagementScreen';
@@ -14,10 +14,16 @@ import { TeacherSettingsScreen } from '@/screens/TeacherSettingsScreen';
 import { TeacherSessionsScreen } from '@/screens/TeacherSessionsScreen';
 import { SplashScreen } from '@/screens/SplashScreen';
 import { ProfileScreen } from '@/screens/ProfileScreen';
-import { StudentLocationScreen as CourseDetailScreen } from '@/screens/StudentLocationScreen';
+import { StudentLocation, StudentLocationScreen as CourseDetailScreen } from '@/screens/StudentLocationScreen';
+import { GPS_ACCURACY_LIMIT_METERS } from '@/constants/config';
 
 type AppScreen = 'studentHome' | 'history' | 'location' | 'profile' | 'teacherDashboard' | 'teacherStudents' | 'teacherStatistics' | 'teacherSettings' | 'teacherSessions' | 'classrooms';
 type CheckInMessage = { kind: 'success' | 'error' | 'info'; text: string };
+
+function currentDateString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) return error.message;
@@ -39,10 +45,11 @@ export default function App() {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [teacherSessions, setTeacherSessions] = useState<ClassSession[]>([]);
   const [selectedTeacherCourseId, setSelectedTeacherCourseId] = useState<number | null>(null);
+  const [teacherDate, setTeacherDate] = useState(currentDateString());
   const [checkInMessage, setCheckInMessage] = useState<CheckInMessage | null>(null);
   const [checkingCourseId, setCheckingCourseId] = useState<number | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [studentLocation, setStudentLocation] = useState<{ latitude: number; longitude: number }>();
+  const [studentLocation, setStudentLocation] = useState<StudentLocation>();
 
   useEffect(() => {
     let active = true;
@@ -128,7 +135,7 @@ export default function App() {
         : courseData[0]?.id ?? null;
       setSelectedTeacherCourseId(nextSelectedCourseId);
       if (nextSelectedCourseId) {
-        setDashboard(await fetchDashboard(nextSelectedCourseId));
+        setDashboard(await fetchDashboard(nextSelectedCourseId, teacherDate));
       } else {
         setDashboard(null);
       }
@@ -165,6 +172,23 @@ export default function App() {
     }
   }
 
+  async function handleRegister(input: { userCode: string; name: string; email: string; password: string }) {
+    setAuthLoading(true);
+    setAuthError(null);
+    await removePersistedAuthToken();
+    try {
+      const registration = await registerStudent(input);
+      await persistAuthToken(registration.token);
+      setUser(registration.user);
+      setScreen('studentHome');
+      await loadStudentData(registration.user.id);
+    } catch (error) {
+      setAuthError(getErrorMessage(error));
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
   function handleLogout() {
     void logoutApi().catch(() => undefined);
     void removePersistedAuthToken();
@@ -182,7 +206,7 @@ export default function App() {
     setStudentLocation(undefined);
   }
 
-  async function handleCheckIn(course: Course) {
+  async function handleCheckIn(course: Course, latestLocation?: StudentLocation) {
     if (!user || user.role !== 'student') return;
 
     setCheckingCourseId(course.id);
@@ -199,15 +223,23 @@ export default function App() {
         throw new Error('Location services are turned off. Please enable GPS and try again.');
       }
 
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-      const { latitude, longitude, accuracy } = position.coords;
-      setStudentLocation({ latitude, longitude });
+      let position: StudentLocation;
+      if (latestLocation) {
+        position = latestLocation;
+      } else {
+        const currentPosition = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        position = {
+          latitude: currentPosition.coords.latitude,
+          longitude: currentPosition.coords.longitude,
+          accuracy: currentPosition.coords.accuracy,
+        };
+      }
+      const { latitude, longitude, accuracy } = position;
+      setStudentLocation(position);
       const distance = calculateDistanceInMeters(latitude, longitude, course.latitude, course.longitude);
 
-      if (accuracy != null && accuracy > 100) {
-        throw new Error('GPS accuracy is too low. Move to an open area and try again.');
+      if (accuracy != null && accuracy > GPS_ACCURACY_LIMIT_METERS) {
+        throw new Error(`GPS accuracy is ${Math.round(accuracy)} m. The current limit is ${Math.round(GPS_ACCURACY_LIMIT_METERS)} m. Move to an open area and try again.`);
       }
 
       setCheckInMessage({
@@ -230,6 +262,9 @@ export default function App() {
         text: `Check-in successful. Distance: ${Math.round(result.distance)} m.`,
       });
       await loadStudentData(user.id);
+      setSelectedCourse(null);
+      setStudentLocation(undefined);
+      setScreen('studentHome');
     } catch (error) {
       if (error instanceof ApiError && error.code === 'OUTSIDE_GEOFENCE') {
         const distance = Number(error.details.distance);
@@ -264,12 +299,26 @@ export default function App() {
     if (user?.role === 'teacher') await loadTeacherData(user.id);
   }
 
+  async function handleTeacherDateChange(date: string) {
+    setTeacherDate(date);
+    if (user?.role !== 'teacher' || !selectedTeacherCourseId) return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      setDashboard(await fetchDashboard(selectedTeacherCourseId, date));
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
   async function handleTeacherCourseSelect(courseId: number) {
     setSelectedTeacherCourseId(courseId);
     setDataLoading(true);
     setDataError(null);
     try {
-      setDashboard(await fetchDashboard(courseId));
+      setDashboard(await fetchDashboard(courseId, teacherDate));
     } catch (error) {
       setDataError(getErrorMessage(error));
     } finally {
@@ -296,6 +345,21 @@ export default function App() {
     setDataError(null);
     try {
       await createTeacherSession(input);
+      await loadTeacherData(user.id);
+    } catch (error) {
+      setDataError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function handleCreateTeacherCourse(input: { courseCode: string; courseName: string; classroomId: number }) {
+    if (user?.role !== 'teacher') return;
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      await createTeacherCourse(input);
       await loadTeacherData(user.id);
     } catch (error) {
       setDataError(getErrorMessage(error));
@@ -406,7 +470,7 @@ export default function App() {
     }
     return (
       <>
-        <LoginScreen errorMessage={authError} isLoading={authLoading} onLogin={handleLogin} />
+        <LoginScreen errorMessage={authError} isLoading={authLoading} onLogin={handleLogin} onRegister={handleRegister} />
         <StatusBar style="dark" />
       </>
     );
@@ -426,10 +490,11 @@ export default function App() {
       return (
         <>
           <CourseDetailScreen
+            checkInMessage={checkInMessage}
             course={selectedCourse}
             isChecking={checkingCourseId === selectedCourse.id}
             onBack={() => setScreen('studentHome')}
-            onCheckIn={() => void handleCheckIn(selectedCourse)}
+            onCheckIn={(location) => void handleCheckIn(selectedCourse, location)}
             studentLocation={studentLocation}
             user={user}
           />
@@ -446,6 +511,11 @@ export default function App() {
             isLoading={dataLoading}
             onBack={() => setScreen('studentHome')}
             onRefresh={() => void loadStudentData(user.id)}
+            onDateChange={async (date) => {
+              setDataLoading(true);
+              setDataError(null);
+              try { setAttendance(await fetchAttendance(user.id, date)); } catch (error) { setDataError(getErrorMessage(error)); } finally { setDataLoading(false); }
+            }}
             onNavigate={(key) => setScreen(key === 'home' ? 'studentHome' : key)}
             records={attendance}
             user={user}
@@ -463,9 +533,14 @@ export default function App() {
           courses={courses}
           errorMessage={dataError}
           isLoading={dataLoading}
-          onCheckIn={(course) => void handleCheckIn(course)}
+          onCheckIn={(course) => {
+            setSelectedCourse(course);
+            setStudentLocation(undefined);
+            setCheckInMessage(null);
+            setScreen('location');
+          }}
           onHistory={() => setScreen('history')}
-          onLocation={(course) => { setSelectedCourse(course); setScreen('location'); }}
+          onLocation={(course) => { setSelectedCourse(course); setStudentLocation(undefined); setCheckInMessage(null); setScreen('location'); }}
           onNavigate={(key) => setScreen(key === 'home' ? 'studentHome' : key)}
           onProfile={() => setScreen('profile')}
           onLogout={handleLogout}
@@ -502,15 +577,15 @@ export default function App() {
   const selectedTeacherCourse = courses.find((course) => course.id === selectedTeacherCourseId) ?? courses[0] ?? null;
 
   if (screen === 'teacherStudents') {
-    return <><TeacherStudentsScreen course={selectedTeacherCourse} dashboard={dashboard} errorMessage={dataError} isLoading={dataLoading} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherRefresh()} /><StatusBar style="dark" /></>;
+    return <><TeacherStudentsScreen course={selectedTeacherCourse} dashboard={dashboard} errorMessage={dataError} isLoading={dataLoading} onDateChange={handleTeacherDateChange} selectedDate={teacherDate} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherRefresh()} /><StatusBar style="dark" /></>;
   }
 
   if (screen === 'teacherStatistics') {
-    return <><TeacherStatisticsScreen course={selectedTeacherCourse} dashboard={dashboard} errorMessage={dataError} isLoading={dataLoading} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherRefresh()} /><StatusBar style="dark" /></>;
+    return <><TeacherStatisticsScreen course={selectedTeacherCourse} dashboard={dashboard} errorMessage={dataError} isLoading={dataLoading} onDateChange={handleTeacherDateChange} selectedDate={teacherDate} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherRefresh()} /><StatusBar style="dark" /></>;
   }
 
   if (screen === 'teacherSessions') {
-    return <><TeacherSessionsScreen classrooms={classrooms} courses={courses} errorMessage={dataError} isLoading={dataLoading} onControl={handleControlTeacherSession} onDelete={handleDeleteTeacherSession} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherSessionsRefresh()} onSave={handleCreateTeacherSession} onUpdate={handleUpdateTeacherSession} sessions={teacherSessions} /><StatusBar style="dark" /></>;
+    return <><TeacherSessionsScreen classrooms={classrooms} courses={courses} errorMessage={dataError} isLoading={dataLoading} onControl={handleControlTeacherSession} onCreateCourse={handleCreateTeacherCourse} onDelete={handleDeleteTeacherSession} onNavigate={teacherNavigation} onRefresh={() => void handleTeacherSessionsRefresh()} onSave={handleCreateTeacherSession} onUpdate={handleUpdateTeacherSession} sessions={teacherSessions} /><StatusBar style="dark" /></>;
   }
 
   if (screen === 'teacherSettings') {
@@ -529,7 +604,9 @@ export default function App() {
         onLogout={handleLogout}
         onNavigate={teacherNavigation}
         onCourseSelect={(courseId) => void handleTeacherCourseSelect(courseId)}
+        onDateChange={handleTeacherDateChange}
         onRefresh={() => void handleTeacherRefresh()}
+        selectedDate={teacherDate}
         selectedCourseId={selectedTeacherCourse?.id ?? null}
         user={user}
       />

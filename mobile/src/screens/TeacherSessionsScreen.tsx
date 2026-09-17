@@ -1,13 +1,13 @@
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
 import { AppIcon } from '@/components/AppIcon';
 import { IconButton } from '@/components/IconButton';
 import { NavigationBar } from '@/components/NavigationBar';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { ClassSession, Classroom, Course, SessionAttendanceResponse, SessionInput, fetchTeacherSessionAttendance } from '@/services/api';
+import { ClassSession, Classroom, Course, SessionAttendanceResponse, SessionInput, correctTeacherAttendance, fetchTeacherSessionAttendance } from '@/services/api';
 import { colors, navigation, radius, spacing } from '@/theme';
 import { formatDistance, formatTime } from '@/utils/format';
 
@@ -21,6 +21,7 @@ type Props = {
   errorMessage: string | null;
   onRefresh: () => void;
   onSave: (input: SessionInput) => Promise<void>;
+  onCreateCourse: (input: { courseCode: string; courseName: string; classroomId: number }) => Promise<void>;
   onUpdate: (id: number, input: SessionInput) => Promise<void>;
   onControl: (id: number, action: 'open' | 'close' | 'cancel') => Promise<void>;
   onDelete: (id: number) => Promise<void>;
@@ -66,7 +67,7 @@ const emptyForm = (course?: Course, classroom?: Classroom): FormState => ({
   gpsRadius: classroom ? String(classroom.radius) : '50',
 });
 
-export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading, errorMessage, onRefresh, onSave, onUpdate, onControl, onDelete, onNavigate }: Props) {
+export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading, errorMessage, onRefresh, onSave, onCreateCourse, onUpdate, onControl, onDelete, onNavigate }: Props) {
   const uniqueCourses = useMemo(() => courses.filter((course, index, list) => list.findIndex((candidate) => candidate.id === course.id) === index), [courses]);
   const [form, setForm] = useState<FormState>(emptyForm(uniqueCourses[0], classrooms[0]));
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -82,6 +83,13 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
   const [attendanceHistory, setAttendanceHistory] = useState<SessionAttendanceResponse | null>(null);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
+  const [newCourseCode, setNewCourseCode] = useState('');
+  const [newCourseName, setNewCourseName] = useState('');
+  const [courseCreateError, setCourseCreateError] = useState<string | null>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<SessionAttendanceResponse['students'][number] | null>(null);
+  const [correctionStatus, setCorrectionStatus] = useState<'present' | 'late'>('present');
+  const [correctionNotes, setCorrectionNotes] = useState('');
+  const [correctionSaving, setCorrectionSaving] = useState(false);
 
   useEffect(() => {
     if (!form.courseId && uniqueCourses[0]) setForm((current) => ({ ...current, courseId: String(uniqueCourses[0].id) }));
@@ -192,6 +200,27 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
     }
   }
 
+  function openCorrection(student: SessionAttendanceResponse['students'][number]) {
+    setCorrectionTarget(student);
+    setCorrectionStatus(student.status === 'late' ? 'late' : 'present');
+    setCorrectionNotes('');
+  }
+
+  async function saveCorrection() {
+    if (!attendanceTarget || !correctionTarget) return;
+    setCorrectionSaving(true);
+    setAttendanceError(null);
+    try {
+      await correctTeacherAttendance(attendanceTarget.id, correctionTarget.studentId, correctionStatus, correctionNotes);
+      setAttendanceHistory(await fetchTeacherSessionAttendance(attendanceTarget.id));
+      setCorrectionTarget(null);
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : 'Unable to save the attendance correction.');
+    } finally {
+      setCorrectionSaving(false);
+    }
+  }
+
   function requestDelete(session: ClassSession) {
     setDeleteError(null);
     setPendingDelete(session);
@@ -254,15 +283,28 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
       <ScreenHeader subtitle="Teacher tools" title="Session management" />
       <Text style={styles.description}>Create a real session for a course, then open or close check-in when the class is ready.</Text>
       <View style={styles.actions}>
-        <PrimaryButton label="New session" onPress={startNew} variant="secondary" />
+        <PrimaryButton icon="plus" label="New session" onPress={startNew} variant="secondary" />
         <IconButton disabled={isLoading} icon="refresh" label={isLoading ? 'Refreshing sessions' : 'Refresh sessions'} onPress={onRefresh} />
       </View>
       {isLoading ? <Text style={styles.muted}>Updating sessions...</Text> : null}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
+      {uniqueCourses.length === 0 ? (
+        <View style={styles.formCard}>
+          <Text style={styles.sectionTitle}>Create a course first</Text>
+          <Text style={styles.helper}>A session must belong to a course. Create the teacher-owned course here, then create the session.</Text>
+          <Text style={styles.label}>Course code</Text>
+          <TextInput autoCapitalize="characters" onChangeText={(value) => { setNewCourseCode(value); setCourseCreateError(null); }} placeholder="e.g. 040613101" style={styles.textInput} value={newCourseCode} />
+          <Text style={styles.label}>Course name</Text>
+          <TextInput onChangeText={(value) => { setNewCourseName(value); setCourseCreateError(null); }} placeholder="e.g. Mobile Application" style={styles.textInput} value={newCourseName} />
+          {courseCreateError ? <Text style={styles.error}>{courseCreateError}</Text> : null}
+          <PrimaryButton disabled={isLoading || classrooms.length === 0 || !newCourseCode.trim() || !newCourseName.trim()} icon="plus" label={isLoading ? 'Creating course...' : 'Create course'} onPress={() => void (async () => { try { await onCreateCourse({ courseCode: newCourseCode.trim(), courseName: newCourseName.trim(), classroomId: classrooms[0].id }); setNewCourseCode(''); setNewCourseName(''); } catch (error) { setCourseCreateError(error instanceof Error ? error.message : 'The course could not be created.'); } })()} />
+        </View>
+      ) : null}
+
       <View style={styles.formCard}>
-        <Text style={styles.sectionTitle}>{editingId ? 'Edit scheduled session' : 'Create session'}</Text>
-        <Text style={styles.helper}>Students can check in only when this session is opened by the teacher and their GPS is inside the selected classroom radius.</Text>
+        <Text style={styles.sectionTitle}>{editingId ? 'Edit session' : 'Create session'}</Text>
+        <Text style={styles.helper}>Students can check in only when this session is opened by the teacher and their GPS is inside the selected classroom radius. Closed or cancelled sessions can be corrected only during the configured correction window.</Text>
         <Text style={styles.label}>Course</Text>
         <View style={styles.optionList}>{uniqueCourses.map((course) => <PrimaryButton key={course.id} label={`${course.courseCode} · ${course.courseName}`} onPress={() => selectCourse(course.id)} variant={Number(form.courseId) === course.id ? 'primary' : 'secondary'} />)}</View>
         <PickerField label="Session date" value={form.sessionDate} onPress={() => openPicker('sessionDate')} />
@@ -279,7 +321,8 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
         <PickerField label="GPS radius (meters)" value={`${form.gpsRadius} meters`} onPress={() => openPicker('gpsRadius')} />
         {validationMessage ? <Text style={styles.error}>{validationMessage}</Text> : null}
         {saveMessage ? <Text style={styles.success}>{saveMessage}</Text> : null}
-        <PrimaryButton disabled={isLoading || uniqueCourses.length === 0 || classrooms.length === 0} label={editingId ? (isLoading ? 'Saving...' : 'Save session changes') : (isLoading ? 'Creating...' : 'Create session')} onPress={() => void submit()} />
+        <PrimaryButton disabled={isLoading || uniqueCourses.length === 0 || classrooms.length === 0} icon="save" label={editingId ? (isLoading ? 'Saving...' : 'Save session changes') : (isLoading ? 'Creating...' : 'Create session')} onPress={() => void submit()} />
+        {uniqueCourses.length === 0 ? <Text style={styles.helper}>Create a course above before creating a session.</Text> : null}
       </View>
 
       <Text style={styles.sectionTitle}>Managed sessions</Text>
@@ -297,14 +340,14 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
           </View>
           <Text style={styles.detail}>Check-in window: {session.checkinOpenTime} - {session.checkinCloseTime}</Text>
           <View style={styles.sessionActions}>
-            {session.status === 'SCHEDULED' ? <PrimaryButton label="Open check-in" onPress={() => requestControl(session, 'open')} /> : null}
-            {session.status === 'OPEN' ? <PrimaryButton label="Close check-in" onPress={() => requestControl(session, 'close')} variant="danger" /> : null}
-            {session.status === 'SCHEDULED' ? <PrimaryButton label="Edit" onPress={() => editSession(session)} variant="secondary" /> : null}
-            {session.status === 'CLOSED' || session.status === 'CANCELLED' ? <PrimaryButton label="View attendance history" onPress={() => void viewAttendanceHistory(session)} variant="secondary" /> : null}
-            {session.status !== 'CLOSED' && session.status !== 'CANCELLED' ? <PrimaryButton label="Cancel" onPress={() => requestControl(session, 'cancel')} variant="secondary" /> : null}
-            {session.status === 'CLOSED' || session.status === 'CANCELLED' ? <PrimaryButton label="Delete" onPress={() => requestDelete(session)} variant="danger" /> : null}
+            {session.status === 'SCHEDULED' ? <PrimaryButton icon="location" label="Open check-in" onPress={() => requestControl(session, 'open')} /> : null}
+            {session.status === 'OPEN' ? <PrimaryButton icon="close" label="Close check-in" onPress={() => requestControl(session, 'close')} variant="danger" /> : null}
+            {session.canEdit ? <PrimaryButton icon="edit" label="Edit" onPress={() => editSession(session)} variant="secondary" /> : null}
+            {session.status === 'CLOSED' || session.status === 'CANCELLED' ? <PrimaryButton icon="history" label="View attendance history" onPress={() => void viewAttendanceHistory(session)} variant="secondary" /> : null}
+            {session.status !== 'CLOSED' && session.status !== 'CANCELLED' ? <PrimaryButton icon="cancel" label="Cancel" onPress={() => requestControl(session, 'cancel')} variant="secondary" /> : null}
+            {session.status === 'CLOSED' || session.status === 'CANCELLED' ? <PrimaryButton icon="delete" label="Delete" onPress={() => requestDelete(session)} variant="danger" /> : null}
           </View>
-          {session.status === 'CLOSED' || session.status === 'CANCELLED' ? <Text style={styles.finalNote}>Final status: this session is read-only.</Text> : null}
+          {session.status === 'CLOSED' || session.status === 'CANCELLED' ? <Text style={styles.finalNote}>{session.canEdit ? `Correction window open until ${session.editableUntil ? new Date(session.editableUntil).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'the configured deadline'}.` : 'Correction window expired; this session is read-only.'}</Text> : null}
         </View>
       ))}
 
@@ -342,7 +385,10 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
                           <Text style={[styles.historyStatus, student.status === 'present' ? styles.historyPresent : student.status === 'late' ? styles.historyLate : styles.historyAbsent]}>
                             {student.status === 'present' ? 'Present' : student.status === 'late' ? 'Late' : 'Absent'}
                           </Text>
-                          <Text style={styles.detail}>{formatTime(student.checkInTime)} · {formatDistance(student.distance)}</Text>
+                          <Text style={styles.detail}>{student.attendanceSource === 'manual' ? 'Manual correction' : `${formatTime(student.checkInTime)} · ${formatDistance(student.distance)}`}</Text>
+                          <Pressable accessibilityRole="button" onPress={() => openCorrection(student)} style={styles.correctButton}>
+                            <AppIcon name="edit" size={14} color={colors.accentDark} /><Text style={styles.correctButtonText}>Correct status</Text>
+                          </Pressable>
                         </View>
                       </View>
                     ))}
@@ -350,9 +396,25 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
                   </ScrollView>
                 </>
               ) : null}
-              <PrimaryButton label="Close" onPress={() => setAttendanceTarget(null)} variant="secondary" />
+              <PrimaryButton icon="close" label="Close" onPress={() => setAttendanceTarget(null)} variant="secondary" />
             </View>
           </View>
+        </Modal>
+      ) : null}
+
+      {correctionTarget ? (
+        <Modal animationType="slide" transparent visible onRequestClose={() => setCorrectionTarget(null)}>
+          <View style={styles.modalBackdrop}><View style={styles.confirmCard}>
+            <Text style={styles.pickerTitle}>Correct attendance</Text>
+            <Text style={styles.confirmText}>{correctionTarget.userCode} · {correctionTarget.name}</Text>
+            <Text style={styles.label}>New status</Text>
+            <View style={styles.correctionOptions}>
+              {(['present', 'late'] as const).map((status) => <Pressable key={status} onPress={() => setCorrectionStatus(status)} style={[styles.correctionOption, correctionStatus === status && styles.correctionOptionSelected]}><Text style={[styles.correctionOptionText, correctionStatus === status && styles.correctionOptionTextSelected]}>{status === 'present' ? 'Present' : 'Late'}</Text></Pressable>)}
+            </View>
+            <Text style={styles.label}>Reason (optional)</Text>
+            <TextInput value={correctionNotes} onChangeText={setCorrectionNotes} placeholder="GPS issue or device problem" style={styles.notesInput} />
+            <View style={styles.pickerActions}><PrimaryButton icon="back" label="Cancel" onPress={() => setCorrectionTarget(null)} variant="secondary" /><PrimaryButton disabled={correctionSaving} icon="save" label={correctionSaving ? 'Saving...' : 'Save correction'} onPress={() => void saveCorrection()} /></View>
+          </View></View>
         </Modal>
       ) : null}
 
@@ -364,7 +426,7 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
               <Text style={styles.confirmText}>{controlDescription(pendingControl.action, pendingControl.session)}</Text>
               {controlError ? <Text style={styles.error}>{controlError}</Text> : null}
               <View style={styles.pickerActions}>
-                <PrimaryButton label="Go back" onPress={() => setPendingControl(null)} variant="secondary" />
+                <PrimaryButton icon="back" label="Go back" onPress={() => setPendingControl(null)} variant="secondary" />
                 <PrimaryButton disabled={isLoading} label={controlButtonLabel(pendingControl.action)} onPress={() => void confirmControl()} variant={pendingControl.action === 'open' ? 'primary' : 'danger'} />
               </View>
             </View>
@@ -381,8 +443,8 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
               <Text style={styles.confirmHint}>Sessions with attendance records are protected and cannot be deleted.</Text>
               {deleteError ? <Text style={styles.error}>{deleteError}</Text> : null}
               <View style={styles.pickerActions}>
-                <PrimaryButton label="Go back" onPress={() => setPendingDelete(null)} variant="secondary" />
-                <PrimaryButton disabled={isLoading} label="Delete session" onPress={() => void confirmDelete()} variant="danger" />
+                <PrimaryButton icon="back" label="Go back" onPress={() => setPendingDelete(null)} variant="secondary" />
+                <PrimaryButton icon="delete" disabled={isLoading} label="Delete session" onPress={() => void confirmDelete()} variant="danger" />
               </View>
             </View>
           </View>
@@ -402,8 +464,8 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
               <Text style={styles.pickerTitle}>{pickerTitle}</Text>
               <DateTimePicker display="spinner" mode={pickerKey === 'sessionDate' ? 'date' : 'time'} value={pickerDate} onChange={handleNativePickerChange} />
               <View style={styles.pickerActions}>
-                <PrimaryButton label="Cancel" onPress={() => setPickerKey(null)} variant="secondary" />
-                <PrimaryButton label="Done" onPress={confirmNativePicker} />
+                <PrimaryButton icon="cancel" label="Cancel" onPress={() => setPickerKey(null)} variant="secondary" />
+                <PrimaryButton icon="check" label="Done" onPress={confirmNativePicker} />
               </View>
             </View>
           </View>
@@ -423,7 +485,7 @@ export function TeacherSessionsScreen({ courses, classrooms, sessions, isLoading
 }
 
 function PickerField({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
-  return <View style={styles.fieldGroup}><Text style={styles.label}>{label}</Text><Pressable accessibilityRole="button" onPress={onPress} style={styles.input}><Text style={styles.inputValue}>{value}</Text><Text style={styles.chevron}>⌄</Text></Pressable></View>;
+  return <View style={styles.fieldGroup}><Text style={styles.label}>{label}</Text><Pressable accessibilityLabel={`Select ${label}`} accessibilityRole="button" onPress={onPress} style={styles.input}><Text style={styles.inputValue}>{value}</Text><AppIcon color={colors.accent} name="chevronDown" size={20} /></Pressable></View>;
 }
 
 function OptionPickerModal({ title, options, selectedValue, onClose, onSelect }: { title: string; options: PickerOption[]; selectedValue: string; onClose: () => void; onSelect: (value: string) => void }) {
@@ -518,8 +580,8 @@ const styles = StyleSheet.create({
   twoColumns: { flexDirection: 'row', gap: spacing.md },
   fieldGroup: { flex: 1, gap: spacing.xs },
   input: { alignItems: 'center', borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.md },
+  textInput: { borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, color: colors.text, fontSize: 16, minHeight: 50, paddingHorizontal: spacing.md },
   inputValue: { color: colors.text, flex: 1, fontSize: 16 },
-  chevron: { color: colors.accent, fontSize: 20, fontWeight: '800', lineHeight: 18 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)', flex: 1, justifyContent: 'flex-end' },
   nativePickerCard: { alignItems: 'center', backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, gap: spacing.lg, padding: spacing.xl, width: '100%' },
   optionPickerCard: { backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, gap: spacing.md, maxHeight: '82%', padding: spacing.xl, width: '100%' },
@@ -565,6 +627,14 @@ const styles = StyleSheet.create({
   historyCode: { color: colors.accent, fontSize: 12, fontWeight: '800' },
   historyName: { color: colors.text, fontSize: 14, fontWeight: '700' },
   historyStatusCopy: { alignItems: 'flex-end', gap: spacing.xs },
+  correctButton: { alignItems: 'center', backgroundColor: colors.accentPale, borderRadius: radius.sm, flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  correctButtonText: { color: colors.accentDark, fontSize: 11, fontWeight: '800' },
+  correctionOptions: { flexDirection: 'row', gap: spacing.sm },
+  correctionOption: { borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, flex: 1, padding: spacing.md },
+  correctionOptionSelected: { backgroundColor: colors.accentPale, borderColor: colors.accent },
+  correctionOptionText: { color: colors.body, fontWeight: '700', textAlign: 'center' },
+  correctionOptionTextSelected: { color: colors.accentDark },
+  notesInput: { borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, color: colors.text, minHeight: 46, padding: spacing.md },
   historyStatus: { borderRadius: radius.pill, fontSize: 11, fontWeight: '800', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   historyPresent: { backgroundColor: colors.successSoft, color: colors.success },
   historyLate: { backgroundColor: colors.warningSoft, color: colors.warning },

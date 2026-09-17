@@ -4,6 +4,7 @@ import { IconButton } from '@/components/IconButton';
 import { NavigationBar } from '@/components/NavigationBar';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { DateFilter } from '@/components/DateFilter';
 import { Course, DashboardResponse } from '@/services/api';
 import { colors, navigation, radius, spacing } from '@/theme';
 import { formatDistance, formatTime } from '@/utils/format';
@@ -14,16 +15,19 @@ type Props = {
   isLoading: boolean;
   errorMessage: string | null;
   onRefresh: () => void;
+  selectedDate: string;
+  onDateChange: (date: string) => void;
   onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings' | 'sessions') => void;
 };
 
-export function TeacherStudentsScreen({ course, dashboard, isLoading, errorMessage, onRefresh, onNavigate }: Props) {
+export function TeacherStudentsScreen({ course, dashboard, isLoading, errorMessage, onRefresh, selectedDate, onDateChange, onNavigate }: Props) {
   return (
     <View style={styles.screenRoot}>
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
       <DecorativeBackdrop />
       <ScreenHeader subtitle={course?.courseName ?? 'Course attendance'} title="Students" />
-      <Text style={styles.description}>Attendance records for today&apos;s class. Present, late, and absent states are shown below.</Text>
+      <DateFilter value={selectedDate} onChange={onDateChange} />
+      <Text style={styles.description}>Attendance records for {selectedDate}. Present, late, and absent states are shown below.</Text>
       <IconButton icon="refresh" label="Refresh students" onPress={onRefresh} />
       {isLoading ? <Text style={styles.muted}>Loading student attendance...</Text> : null}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}

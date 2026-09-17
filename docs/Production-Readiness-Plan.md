@@ -6,8 +6,8 @@ This document converts the production-readiness board into an implementation che
 
 | Building | Latitude | Longitude | Geofence radius | Example room |
 |---|---:|---:|---:|---|
-| 44 - Faculty of Science and Applied Technology | 13.8138 | 100.5334 | 50 m | Room 4401 |
-| 52 - Faculty of Technical Education and Industrial Technology | 13.8147 | 100.5358 | 50 m | Room 5201 |
+| 44 - Faculty of Technical Education practice building | 13.81972 | 100.51553 | 50 m | Room 4401 |
+| 52 - Faculty of Technical Education | 13.82039 | 100.51512 | 50 m | Room 5201 |
 
 ## Current implementation status
 
@@ -20,12 +20,12 @@ This document converts the production-readiness board into an implementation che
 | Backend deployment | Pending | Configure a hosted database/API, HTTPS, secrets, backups, and monitoring. |
 | APK/mobile testing | Pending | Build an Android/iOS artifact and run the device test checklist. |
 | GPS/geofencing test plan | Implemented as documentation and unit coverage | See `docs/Test-Cases.md`. |
-| User manual and demo script | Implemented | See `docs/User-Manual.md` and `docs/Presentation-Demo-Script.md`. |
+| User manual and presentation script | Implemented | See `docs/User-Manual.md` and `docs/Presentation-Script.md`. |
 
 ## API security rules
 
 - Login returns a short-lived bearer access token.
-- Passwords are stored as salted `scrypt` hashes for seeded and migrated users.
+- Passwords are stored as salted `scrypt` hashes. Production does not seed demo credentials; students register through the application and staff accounts are provisioned with the server account-management script.
 - Student endpoints accept only the authenticated student's own ID.
 - Teacher endpoints accept only the authenticated teacher's own courses.
 - Classroom management requires the teacher role.

@@ -5,7 +5,7 @@ const express = require('express');
 const { database, checkDatabaseConnection } = require('./database/database');
 const { calculateDistanceInMeters } = require('./utils/distance');
 const { isWithinRadius } = require('./utils/geofence');
-const { createAccessToken, hashAccessToken, verifyPassword } = require('./utils/auth');
+const { createAccessToken, hashAccessToken, hashPassword, verifyPassword } = require('./utils/auth');
 const { getSessionDate } = require('./utils/date');
 const { getControlledSessionDetails, getSessionDetails } = require('./utils/session');
 const {
@@ -13,6 +13,7 @@ const {
   isValidLongitude,
   isValidRadius,
   isValidAccuracy,
+  getGpsAccuracyLimit,
   isValidId,
 } = require('./utils/validation');
 
@@ -166,7 +167,23 @@ function getSessionRecord(sessionId) {
 
 function serializeSession(session) {
   if (!session) return null;
-  return { ...session, ...getControlledSessionDetails(session) };
+  const graceMinutes = Math.max(0, Number(process.env.SESSION_EDIT_GRACE_MINUTES ?? 30));
+  const closedAt = session.closedAt ? new Date(session.closedAt) : null;
+  const editableUntil = closedAt && !Number.isNaN(closedAt.getTime())
+    ? new Date(closedAt.getTime() + graceMinutes * 60 * 1000).toISOString()
+    : null;
+  const canEditClosedSession = ['CLOSED', 'CANCELLED'].includes(session.status)
+    && editableUntil != null
+    && Date.now() <= new Date(editableUntil).getTime();
+  return { ...session, ...getControlledSessionDetails(session), editableUntil, canEdit: session.status === 'SCHEDULED' || canEditClosedSession };
+}
+
+function canEditSession(current) {
+  if (current.status === 'SCHEDULED') return true;
+  if (!['CLOSED', 'CANCELLED'].includes(current.status) || !current.closedAt) return false;
+  const graceMinutes = Math.max(0, Number(process.env.SESSION_EDIT_GRACE_MINUTES ?? 30));
+  const closedAt = new Date(current.closedAt).getTime();
+  return Number.isFinite(closedAt) && Date.now() <= closedAt + graceMinutes * 60 * 1000;
 }
 
 function sortTodayCourses(courses) {
@@ -249,6 +266,37 @@ app.post('/api/auth/login', (request, response) => {
   return response.json({ user, token, expiresAt });
 });
 
+app.post('/api/auth/register', (request, response) => {
+  if (process.env.ALLOW_STUDENT_REGISTRATION === 'false') {
+    return sendError(response, 403, 'REGISTRATION_DISABLED', 'New account registration is currently disabled.');
+  }
+
+  const userCode = String(request.body?.userCode ?? '').trim();
+  const name = String(request.body?.name ?? '').trim();
+  const email = String(request.body?.email ?? '').trim().toLowerCase();
+  const password = String(request.body?.password ?? '');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/.test(userCode) || name.length < 2 || name.length > 120 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) {
+    return sendError(response, 400, 'INVALID_REGISTRATION', 'Enter a valid ID, name, email, and a password with at least 8 characters.');
+  }
+
+  try {
+    const result = database.prepare(
+      `INSERT INTO users (user_code, name, email, password, password_hash, role)
+       VALUES (?, ?, ?, '', ?, 'student')`,
+    ).run(userCode, name, email, hashPassword(password));
+    const user = getUserByCode(userCode);
+    const token = createAccessToken();
+    const expiresAt = new Date(Date.now() + (Number(process.env.SESSION_TTL_HOURS) || 8) * 60 * 60 * 1000).toISOString();
+    database.prepare('INSERT INTO sessions (user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?)').run(result.lastInsertRowid, hashAccessToken(token), new Date().toISOString(), expiresAt);
+    return response.status(201).json({ user, token, expiresAt });
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return sendError(response, 409, 'ACCOUNT_EXISTS', 'This ID or email is already registered.');
+    }
+    throw error;
+  }
+});
+
 app.post('/api/auth/logout', requireAuth, (request, response) => {
   database.prepare('DELETE FROM sessions WHERE id = ?').run(request.auth.sessionId);
   return response.json({ success: true });
@@ -287,27 +335,50 @@ app.get('/api/teacher/courses', requireAuth, requireRole('teacher'), (request, r
           class_sessions.checkin_close_time AS checkinCloseTime,
           class_sessions.gps_radius AS sessionRadius,
           class_sessions.status AS sessionControlStatus,
-          classrooms.id AS classroomId,
-         classrooms.room_name AS roomName,
-         buildings.building_code AS buildingCode,
-         buildings.building_name AS buildingName,
-         classrooms.room_number AS roomNumber,
-         classrooms.latitude,
-         classrooms.longitude,
-          COALESCE(class_sessions.gps_radius, classrooms.radius) AS radius,
+         COALESCE(session_classrooms.id, course_classrooms.id) AS classroomId,
+         COALESCE(session_classrooms.room_name, course_classrooms.room_name) AS roomName,
+         COALESCE(session_buildings.building_code, course_buildings.building_code) AS buildingCode,
+         COALESCE(session_buildings.building_name, course_buildings.building_name) AS buildingName,
+         COALESCE(session_classrooms.room_number, course_classrooms.room_number) AS roomNumber,
+         COALESCE(session_classrooms.latitude, course_classrooms.latitude) AS latitude,
+         COALESCE(session_classrooms.longitude, course_classrooms.longitude) AS longitude,
+          COALESCE(class_sessions.gps_radius, session_classrooms.radius, course_classrooms.radius) AS radius,
          NULL AS checkInTime,
          NULL AS status
        FROM courses
-       LEFT JOIN classrooms ON classrooms.id = courses.classroom_id
-        LEFT JOIN buildings ON buildings.id = classrooms.building_id
+       LEFT JOIN classrooms AS course_classrooms ON course_classrooms.id = courses.classroom_id
+        LEFT JOIN buildings AS course_buildings ON course_buildings.id = course_classrooms.building_id
         LEFT JOIN class_schedules ON class_schedules.course_id = courses.id
         LEFT JOIN class_sessions ON class_sessions.course_id = courses.id AND class_sessions.session_date = ?
+        LEFT JOIN classrooms AS session_classrooms ON session_classrooms.id = class_sessions.classroom_id
+        LEFT JOIN buildings AS session_buildings ON session_buildings.id = session_classrooms.building_id
         WHERE courses.teacher_id = ?
        ORDER BY courses.course_code`,
     )
      .all(getSessionDate(), teacherId);
 
   return response.json({ courses: sortTodayCourses(courses) });
+});
+
+app.post('/api/teacher/courses', requireAuth, requireRole('teacher'), (request, response) => {
+  const courseCode = String(request.body?.courseCode ?? '').trim();
+  const courseName = String(request.body?.courseName ?? '').trim();
+  const classroomId = Number(request.body?.classroomId);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/.test(courseCode) || courseName.length < 2 || courseName.length > 120 || !isValidId(classroomId)) {
+    return sendError(response, 400, 'INVALID_COURSE', 'Enter a valid course code, course name, and classroom.');
+  }
+  if (!database.prepare('SELECT id FROM classrooms WHERE id = ?').get(classroomId)) {
+    return sendError(response, 404, 'CLASSROOM_NOT_FOUND', 'The selected classroom was not found.');
+  }
+  try {
+    const result = database.prepare(
+      'INSERT INTO courses (course_code, course_name, teacher_id, classroom_id) VALUES (?, ?, ?, ?)',
+    ).run(courseCode, courseName, request.auth.id, classroomId);
+    return response.status(201).json({ courseId: result.lastInsertRowid });
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') return sendError(response, 409, 'COURSE_EXISTS', 'This course code or course name already exists.');
+    throw error;
+  }
 });
 
 app.get('/api/teacher/sessions', requireAuth, requireRole('teacher'), (request, response) => {
@@ -334,9 +405,11 @@ app.get('/api/teacher/sessions/:id/attendance', requireAuth, requireRole('teache
   }
 
   const students = database.prepare(
-    `SELECT users.user_code AS userCode, users.name,
+    `SELECT users.id AS studentId, users.user_code AS userCode, users.name,
             attendance.check_in_time AS checkInTime,
-            attendance.distance, attendance.accuracy, attendance.status
+            attendance.distance, attendance.accuracy, attendance.status,
+            attendance.attendance_source AS attendanceSource,
+            attendance.notes
      FROM enrollments
      JOIN users ON users.id = enrollments.student_id
      LEFT JOIN attendance
@@ -364,6 +437,55 @@ app.get('/api/teacher/sessions/:id/attendance', requireAuth, requireRole('teache
     },
     students,
   });
+});
+
+app.patch('/api/teacher/sessions/:id/attendance/:studentId', requireAuth, requireRole('teacher'), (request, response) => {
+  const sessionId = Number(request.params.id);
+  const studentId = Number(request.params.studentId);
+  const status = String(request.body?.status || '').toLowerCase();
+  const notes = typeof request.body?.notes === 'string' ? request.body.notes.trim().slice(0, 500) : '';
+  const session = getSessionRecord(sessionId);
+
+  if (!isValidId(sessionId) || !session || session.teacherId !== request.auth.id) {
+    return sendError(response, 404, 'SESSION_NOT_FOUND', 'The session was not found.');
+  }
+  if (!isValidId(studentId) || !['present', 'late'].includes(status)) {
+    return sendError(response, 400, 'INVALID_REQUEST', 'Choose Present or Late and provide a valid student.');
+  }
+  const enrollment = database.prepare(
+    `SELECT users.id, users.user_code AS userCode, users.name
+     FROM enrollments JOIN users ON users.id = enrollments.student_id
+     WHERE enrollments.student_id = ? AND enrollments.course_id = ?`,
+  ).get(studentId, session.courseId);
+  if (!enrollment) return sendError(response, 404, 'STUDENT_NOT_ENROLLED', 'The student is not enrolled in this course.');
+
+  const now = new Date().toISOString();
+  const existing = database.prepare(
+    'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND session_date = ?',
+  ).get(studentId, session.courseId, session.sessionDate);
+
+  if (existing) {
+    database.prepare(
+      `UPDATE attendance
+       SET session_id = ?, classroom_id = ?, status = ?, check_in_time = ?,
+           latitude = 0, longitude = 0, accuracy = NULL, distance = 0,
+           notes = ?, attendance_source = 'manual', corrected_by = ?, corrected_at = ?
+       WHERE id = ?`,
+    ).run(sessionId, session.classroomId, status, now, notes || 'Manual attendance correction', request.auth.id, now, existing.id);
+  } else {
+    database.prepare(
+      `INSERT INTO attendance
+       (student_id, course_id, session_id, classroom_id, latitude, longitude, accuracy, distance,
+        session_date, check_in_time, status, notes, attendance_source, corrected_by, corrected_at)
+       VALUES (?, ?, ?, ?, 0, 0, NULL, 0, ?, ?, ?, ?, 'manual', ?, ?)`,
+    ).run(studentId, session.courseId, sessionId, session.classroomId, session.sessionDate, now, status, notes || 'Manual attendance correction', request.auth.id, now);
+  }
+
+  const attendance = database.prepare(
+    `SELECT id, status, check_in_time AS checkInTime, attendance_source AS attendanceSource, notes
+     FROM attendance WHERE student_id = ? AND course_id = ? AND session_date = ?`,
+  ).get(studentId, session.courseId, session.sessionDate);
+  return response.json({ attendance, student: enrollment });
 });
 
 app.post('/api/teacher/sessions', requireAuth, requireRole('teacher'), (request, response) => {
@@ -405,8 +527,10 @@ app.put('/api/teacher/sessions/:id', requireAuth, requireRole('teacher'), (reque
   if (!isValidId(sessionId) || !current || current.teacherId !== request.auth.id) {
     return sendError(response, 404, 'SESSION_NOT_FOUND', 'The session was not found.');
   }
-  if (current.status !== 'SCHEDULED') {
-    return sendError(response, 409, 'SESSION_LOCKED', 'Only scheduled sessions can be edited.');
+  if (!canEditSession(current)) {
+    return sendError(response, 409, 'SESSION_LOCKED', 'This session is outside the allowed correction window.', {
+      editableUntil: serializeSession(current)?.editableUntil ?? null,
+    });
   }
 
   const courseId = Number(request.body?.courseId ?? current.courseId);
@@ -519,22 +643,24 @@ app.get('/api/courses', requireAuth, requireRole('student'), requireUserId, (req
           class_sessions.checkin_close_time AS checkinCloseTime,
           class_sessions.gps_radius AS sessionRadius,
           class_sessions.status AS sessionControlStatus,
-         classrooms.id AS classroomId,
-         classrooms.room_name AS roomName,
-         buildings.building_code AS buildingCode,
-         buildings.building_name AS buildingName,
-         classrooms.room_number AS roomNumber,
-         classrooms.latitude,
-         classrooms.longitude,
-          COALESCE(class_sessions.gps_radius, classrooms.radius) AS radius,
+         COALESCE(session_classrooms.id, course_classrooms.id) AS classroomId,
+         COALESCE(session_classrooms.room_name, course_classrooms.room_name) AS roomName,
+         COALESCE(session_buildings.building_code, course_buildings.building_code) AS buildingCode,
+         COALESCE(session_buildings.building_name, course_buildings.building_name) AS buildingName,
+         COALESCE(session_classrooms.room_number, course_classrooms.room_number) AS roomNumber,
+         COALESCE(session_classrooms.latitude, course_classrooms.latitude) AS latitude,
+         COALESCE(session_classrooms.longitude, course_classrooms.longitude) AS longitude,
+          COALESCE(class_sessions.gps_radius, session_classrooms.radius, course_classrooms.radius) AS radius,
          attendance.check_in_time AS checkInTime,
          attendance.status
        FROM enrollments
        JOIN courses ON courses.id = enrollments.course_id
-       LEFT JOIN classrooms ON classrooms.id = courses.classroom_id
-        LEFT JOIN buildings ON buildings.id = classrooms.building_id
+       LEFT JOIN classrooms AS course_classrooms ON course_classrooms.id = courses.classroom_id
+        LEFT JOIN buildings AS course_buildings ON course_buildings.id = course_classrooms.building_id
         LEFT JOIN class_schedules ON class_schedules.course_id = courses.id
         LEFT JOIN class_sessions ON class_sessions.course_id = courses.id AND class_sessions.session_date = ?
+        LEFT JOIN classrooms AS session_classrooms ON session_classrooms.id = class_sessions.classroom_id
+        LEFT JOIN buildings AS session_buildings ON session_buildings.id = session_classrooms.building_id
         LEFT JOIN attendance
           ON attendance.course_id = courses.id
          AND attendance.student_id = enrollments.student_id
@@ -549,6 +675,10 @@ app.get('/api/courses', requireAuth, requireRole('student'), requireUserId, (req
 
 app.get('/api/attendance/student/:studentId', requireAuth, requireRole('student'), requireUserId, (request, response) => {
   const studentId = Number(request.params.studentId);
+  const requestedDate = request.query.date ? String(request.query.date) : null;
+  if (requestedDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+    return sendError(response, 400, 'INVALID_DATE', 'Date must use YYYY-MM-DD format.');
+  }
 
   const records = database
     .prepare(
@@ -577,6 +707,7 @@ app.get('/api/attendance/student/:studentId', requireAuth, requireRole('student'
         AND (attendance.session_id = class_sessions.id
           OR (attendance.session_id IS NULL AND attendance.session_date = class_sessions.session_date))
        WHERE enrollments.student_id = ?
+         AND (? IS NULL OR class_sessions.session_date = ?)
          AND (attendance.id IS NOT NULL OR class_sessions.status IN ('CLOSED', 'CANCELLED'))
        UNION ALL
        SELECT
@@ -595,6 +726,7 @@ app.get('/api/attendance/student/:studentId', requireAuth, requireRole('student'
        JOIN classrooms ON classrooms.id = attendance.classroom_id
        WHERE attendance.student_id = ?
          AND attendance.session_id IS NULL
+         AND (? IS NULL OR attendance.session_date = ?)
          AND NOT EXISTS (
            SELECT 1 FROM class_sessions
            WHERE class_sessions.course_id = attendance.course_id
@@ -602,7 +734,7 @@ app.get('/api/attendance/student/:studentId', requireAuth, requireRole('student'
          )
        ORDER BY sessionDate DESC, checkInTime DESC`,
     )
-    .all(studentId, studentId);
+    .all(studentId, requestedDate, requestedDate, studentId, requestedDate, requestedDate);
 
   return response.json({ records });
 });
@@ -634,9 +766,11 @@ app.post('/api/attendance/check-in', requireAuth, requireRole('student'), requir
     return sendError(response, 400, 'INVALID_SESSION', 'A valid session ID is required.');
   }
 
-  if (numericAccuracy != null && !isValidAccuracy(numericAccuracy)) {
+  const gpsAccuracyLimit = getGpsAccuracyLimit();
+  if (numericAccuracy != null && !isValidAccuracy(numericAccuracy, gpsAccuracyLimit)) {
     return sendError(response, 400, 'LOW_ACCURACY', 'GPS accuracy is too low. Please move to an open area and try again.', {
       accuracy: numericAccuracy,
+      limit: gpsAccuracyLimit,
     });
   }
 
@@ -819,7 +953,10 @@ app.get('/api/dashboard', requireAuth, requireRole('teacher'), (request, respons
   if (!getTeacherCourse(courseId, request.auth.id)) {
     return sendError(response, 403, 'FORBIDDEN', 'You can only view dashboards for your own courses.');
   }
-  const sessionDate = getSessionDate();
+  const sessionDate = request.query.date ? String(request.query.date) : getSessionDate();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sessionDate)) {
+    return sendError(response, 400, 'INVALID_DATE', 'Date must use YYYY-MM-DD format.');
+  }
 
   const summary = database
     .prepare(
@@ -850,7 +987,8 @@ app.get('/api/dashboard', requireAuth, requireRole('teacher'), (request, respons
          users.name,
          attendance.check_in_time AS checkInTime,
          attendance.distance,
-         attendance.status
+         attendance.status,
+         attendance.attendance_source AS attendanceSource
        FROM enrollments
        JOIN users ON users.id = enrollments.student_id
        LEFT JOIN attendance
@@ -863,6 +1001,7 @@ app.get('/api/dashboard', requireAuth, requireRole('teacher'), (request, respons
     .all(sessionDate, courseId);
 
   return response.json({
+    date: sessionDate,
     summary: { totalStudents, presentCount, lateCount, absentCount, attendanceRate },
     students,
   });

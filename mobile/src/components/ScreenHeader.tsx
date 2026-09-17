@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppIcon } from '@/components/AppIcon';
+import { colors, spacing } from '@/theme';
 
 type Props = {
   title: string;
@@ -36,7 +37,7 @@ export function ScreenHeader({ title, subtitle, onBack, onLogout }: Props) {
           onPress={onLogout}
           style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}
         >
-          <Text style={styles.logout}>Log out</Text>
+          <View style={styles.logoutContent}><AppIcon color={colors.danger} name="logout" size={17} /><Text style={styles.logout}>Log out</Text></View>
         </Pressable>
       ) : null}
     </View>
@@ -45,13 +46,14 @@ export function ScreenHeader({ title, subtitle, onBack, onLogout }: Props) {
 
 const styles = StyleSheet.create({
   container: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  titleBlock: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8, minWidth: 0 },
+  titleBlock: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: spacing.sm, minWidth: 0 },
   titleContent: { flexShrink: 1, minWidth: 0 },
   backButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, paddingHorizontal: 6 },
   back: { color: '#1D4ED8', fontSize: 14, fontWeight: '800' },
-  title: { color: '#0F172A', flexShrink: 1, fontSize: 24, fontWeight: '800' },
-  subtitle: { color: '#64748B', fontSize: 13, marginTop: 2 },
+  title: { color: colors.text, flexShrink: 1, fontSize: 24, fontWeight: '800' },
+  subtitle: { color: colors.muted, fontSize: 13, marginTop: 2 },
   logoutButton: { alignItems: 'center', borderColor: '#FCA5A5', borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 12 },
-  logout: { color: '#B91C1C', flexShrink: 0, fontSize: 13, fontWeight: '800' },
+  logout: { color: colors.danger, flexShrink: 0, fontSize: 13, fontWeight: '800' },
+  logoutContent: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
   pressed: { opacity: 0.7, transform: [{ scale: 0.97 }] },
 });

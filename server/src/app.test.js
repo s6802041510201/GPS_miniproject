@@ -1,9 +1,19 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
+const path = require('node:path');
 const test = require('node:test');
+const testDatabasePath = path.join(__dirname, '../data/geo-attendance.test.db');
+for (const suffix of ['', '-shm', '-wal']) {
+  const filePath = `${testDatabasePath}${suffix}`;
+  if (fs.existsSync(filePath)) fs.rmSync(filePath);
+}
+process.env.GEO_ATTENDANCE_DATABASE_PATH = testDatabasePath;
+process.env.SEED_DEMO_DATA = 'true';
 const app = require('./app');
 const { database } = require('./database/database');
 const { getSessionDate, getWeekdayName } = require('./utils/date');
+const { getGpsAccuracyLimit, isValidAccuracy } = require('./utils/validation');
 
 let server;
 let baseUrl;
@@ -39,6 +49,12 @@ async function login(userCode, password = '123456') {
 function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
 }
+
+test('indoor GPS accuracy uses the configurable 150-meter default', () => {
+  assert.equal(getGpsAccuracyLimit(), 150);
+  assert.equal(isValidAccuracy(109), true);
+  assert.equal(isValidAccuracy(151), false);
+});
 
 test('protected API routes enforce authentication, role, and ownership', async () => {
   const student = await login('65001');
@@ -98,9 +114,72 @@ test('protected API routes enforce authentication, role, and ownership', async (
   });
 });
 
+test('student registration creates a real account without demo credentials', async () => {
+  const userCode = `ST${Date.now()}`;
+  const email = `${userCode.toLowerCase()}@example.ac.th`;
+  const registered = await request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ userCode, name: 'Registered Student', email, password: 'secure-pass-123' }),
+  });
+  assert.equal(registered.status, 201);
+  assert.equal(registered.body.user.role, 'student');
+  assert.ok(registered.body.token);
+  assert.equal((await request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ userCode, password: 'secure-pass-123' }),
+  })).status, 200);
+  const created = database.prepare('SELECT id FROM users WHERE user_code = ?').get(userCode);
+  database.prepare('DELETE FROM sessions WHERE user_id = ?').run(created.id);
+  database.prepare('DELETE FROM users WHERE id = ?').run(created.id);
+});
+
+test('teacher can create a course for session management', async () => {
+  const teacher = await login('T001');
+  const classroom = database.prepare('SELECT id FROM classrooms ORDER BY id LIMIT 1').get();
+  const courseCode = `TEST${Date.now()}`;
+  const created = await request('/api/teacher/courses', {
+    method: 'POST',
+    headers: authHeaders(teacher.token),
+    body: JSON.stringify({ courseCode, courseName: 'Session Creation Test', classroomId: classroom.id }),
+  });
+  assert.equal(created.status, 201);
+  assert.ok(created.body.courseId);
+  const saved = database.prepare('SELECT teacher_id AS teacherId, classroom_id AS classroomId FROM courses WHERE id = ?').get(created.body.courseId);
+  assert.deepEqual(saved, { teacherId: teacher.user.id, classroomId: classroom.id });
+  database.prepare('DELETE FROM courses WHERE id = ?').run(created.body.courseId);
+  await request('/api/auth/logout', { method: 'POST', headers: authHeaders(teacher.token) });
+});
+
+test('student sees the active session classroom instead of the course default classroom', async () => {
+  const student = await login('65001');
+  const controlledCourse = database.prepare(
+    `SELECT courses.id, class_sessions.classroom_id AS sessionClassroomId
+     FROM courses JOIN class_sessions ON class_sessions.course_id = courses.id
+     WHERE courses.course_code = ? AND class_sessions.session_date = ?
+     LIMIT 1`,
+  ).get('040613101', getSessionDate());
+  const sessionClassroom = database.prepare('SELECT id, room_name AS roomName, building_id AS buildingId FROM classrooms WHERE id = ?').get(controlledCourse.sessionClassroomId);
+  const courseDefaultClassroom = database.prepare('SELECT id FROM classrooms WHERE id <> ? ORDER BY id LIMIT 1').get(sessionClassroom.id);
+  const original = database.prepare('SELECT classroom_id AS classroomId FROM courses WHERE id = ?').get(controlledCourse.id);
+  database.prepare('UPDATE courses SET classroom_id = ? WHERE id = ?').run(courseDefaultClassroom.id, controlledCourse.id);
+  const response = await request(`/api/courses?studentId=${student.user.id}`, { headers: authHeaders(student.token) });
+  const course = response.body.courses.find((item) => item.id === controlledCourse.id);
+  assert.equal(response.status, 200);
+  assert.equal(course.classroomId, sessionClassroom.id);
+  assert.equal(course.roomName, sessionClassroom.roomName);
+  assert.ok(course.buildingCode);
+  database.prepare('UPDATE courses SET classroom_id = ? WHERE id = ?').run(original.classroomId, controlledCourse.id);
+  await request('/api/auth/logout', { method: 'POST', headers: authHeaders(student.token) });
+});
+
 test('check-in rejects malformed GPS accuracy and a classroom that is not mapped to the course', async () => {
   const student = await login('65001');
-  const course = database.prepare('SELECT id, classroom_id AS classroomId FROM courses ORDER BY id LIMIT 1').get();
+  const course = database.prepare(
+    `SELECT courses.id, class_sessions.classroom_id AS classroomId
+     FROM courses JOIN class_sessions ON class_sessions.course_id = courses.id
+     WHERE class_sessions.session_date = ?
+     ORDER BY courses.id LIMIT 1`,
+  ).get(getSessionDate());
   const classroom = database.prepare('SELECT id, latitude, longitude FROM classrooms WHERE id <> ? ORDER BY id LIMIT 1').get(course.classroomId);
 
   const badAccuracy = await request('/api/attendance/check-in', {
@@ -319,6 +398,15 @@ test('teacher-controlled session flow gates student check-in', async () => {
     assert.equal(closed.status, 200);
     assert.equal(closed.body.session.status, 'CLOSED');
 
+    const correctedSession = await request(`/api/teacher/sessions/${created.body.session.id}`, {
+      method: 'PUT',
+      headers: authHeaders(teacher.token),
+      body: JSON.stringify({ ...payload, checkinCloseTime: '12:30' }),
+    });
+    assert.equal(correctedSession.status, 200);
+    assert.equal(correctedSession.body.session.status, 'CLOSED');
+    assert.equal(correctedSession.body.session.canEdit, true);
+
     const teacherSessions = await request(`/api/teacher/sessions?teacherId=${teacher.user.id}`, {
       headers: authHeaders(teacher.token),
     });
@@ -332,6 +420,22 @@ test('teacher-controlled session flow gates student check-in', async () => {
     assert.equal(attendanceHistory.body.summary.totalStudents, 1);
     assert.equal(attendanceHistory.body.summary.presentCount + attendanceHistory.body.summary.lateCount, 1);
     assert.equal(attendanceHistory.body.students[0].userCode, student.user.userCode);
+
+    const corrected = await request(`/api/teacher/sessions/${created.body.session.id}/attendance/${student.user.id}`, {
+      method: 'PATCH',
+      headers: authHeaders(teacher.token),
+      body: JSON.stringify({ status: 'late', notes: 'GPS signal unavailable during check-in.' }),
+    });
+    assert.equal(corrected.status, 200);
+    assert.equal(corrected.body.attendance.status, 'late');
+    assert.equal(corrected.body.attendance.attendanceSource, 'manual');
+
+    const historicalDashboard = await request(`/api/dashboard?courseId=${course.lastInsertRowid}&date=${getSessionDate()}`, {
+      headers: authHeaders(teacher.token),
+    });
+    assert.equal(historicalDashboard.status, 200);
+    assert.equal(historicalDashboard.body.date, getSessionDate());
+    assert.equal(historicalDashboard.body.summary.lateCount, 1);
 
     const protectedDelete = await request(`/api/teacher/sessions/${created.body.session.id}`, {
       method: 'DELETE',

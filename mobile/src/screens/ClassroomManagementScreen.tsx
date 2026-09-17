@@ -106,7 +106,7 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
       <DecorativeBackdrop />
       <ScreenHeader onBack={onBack} subtitle="Teacher tools" title="Classroom management" />
       <View style={styles.actions}>
-        <PrimaryButton label="New classroom" onPress={startNew} variant="secondary" />
+        <PrimaryButton icon="plus" label="New classroom" onPress={startNew} variant="secondary" />
         <IconButton disabled={isLoading} icon="refresh" label={isLoading ? 'Refreshing classrooms' : 'Refresh classrooms'} onPress={onRefresh} />
       </View>
       {isLoading ? <Text style={styles.muted}>Loading classrooms...</Text> : null}
@@ -121,8 +121,8 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
             <Text style={styles.detail}>GPS: {classroom.latitude}, {classroom.longitude}</Text>
           </View>
           <View style={styles.classroomActions}>
-            <PrimaryButton label="Edit" onPress={() => selectClassroom(classroom)} variant="secondary" />
-            <PrimaryButton label="Delete" onPress={() => confirmDelete(classroom)} variant="danger" />
+            <PrimaryButton icon="edit" label="Edit" onPress={() => selectClassroom(classroom)} variant="secondary" />
+            <PrimaryButton icon="delete" label="Delete" onPress={() => confirmDelete(classroom)} variant="danger" />
           </View>
         </View>
       ))}
@@ -136,7 +136,7 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
         <Field label="Radius (meters)" value={form.radius} onChange={(value) => setForm((current) => ({ ...current, radius: value }))} placeholder="50" keyboardType="decimal-pad" />
         {validationMessage ? <Text style={styles.error}>{validationMessage}</Text> : null}
         {saveMessage ? <Text style={styles.success}>{saveMessage}</Text> : null}
-        <PrimaryButton label={selectedId ? 'Save changes' : 'Create classroom'} onPress={submit} />
+        <PrimaryButton icon="save" label={selectedId ? 'Save changes' : 'Create classroom'} onPress={submit} />
       </View>
       <Modal animationType="fade" transparent visible={Boolean(deleteTarget)} onRequestClose={() => setDeleteTarget(null)}>
         <View style={styles.modalBackdrop}>
@@ -146,8 +146,8 @@ export function ClassroomManagementScreen({ classrooms, isLoading, errorMessage,
             <Text style={styles.confirmHint}>Rooms linked to courses, sessions, or attendance records cannot be deleted.</Text>
             {deleteError ? <Text style={styles.error}>{deleteError}</Text> : null}
             <View style={styles.confirmActions}>
-              <PrimaryButton label="Cancel" onPress={() => setDeleteTarget(null)} variant="secondary" />
-              <PrimaryButton label="Delete" onPress={() => void deleteSelectedClassroom()} variant="danger" disabled={isLoading} />
+              <PrimaryButton icon="cancel" label="Cancel" onPress={() => setDeleteTarget(null)} variant="secondary" />
+              <PrimaryButton icon="delete" label="Delete" onPress={() => void deleteSelectedClassroom()} variant="danger" disabled={isLoading} />
             </View>
           </View>
         </View>

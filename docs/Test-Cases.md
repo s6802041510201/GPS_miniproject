@@ -11,7 +11,7 @@ The following cases are the minimum acceptance suite for Buildings 44 and 52. Re
 | GPS-03 | Submit a coordinate exactly 50 m from the selected building | Check-in is accepted because the boundary is inclusive. |
 | GPS-04 | Submit a coordinate 51 m from the selected building | Check-in is rejected with `OUTSIDE_GEOFENCE`. |
 | GPS-05 | Submit an invalid latitude or longitude | Request is rejected with `INVALID_COORDINATES`. |
-| GPS-06 | Submit GPS accuracy greater than 100 m | Request is rejected with `LOW_ACCURACY`. |
+| GPS-06 | Submit GPS accuracy greater than the configured limit (default 150 m) | Request is rejected with `LOW_ACCURACY`. |
 | GPS-07 | Turn off device Location Services | The app explains that GPS must be enabled. |
 | GPS-08 | Deny foreground location permission | The app explains that location permission is required. |
 | GPS-09 | Submit a second check-in for the same student, course, and date | Request is rejected with `DUPLICATE_CHECK_IN`. |

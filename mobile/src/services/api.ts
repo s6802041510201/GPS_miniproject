@@ -78,6 +78,8 @@ export type ClassSession = {
   checkInAllowed: boolean;
   openedAt: string | null;
   closedAt: string | null;
+  editableUntil?: string | null;
+  canEdit?: boolean;
 };
 
 export type SessionInput = {
@@ -92,12 +94,15 @@ export type SessionInput = {
 };
 
 export type SessionAttendanceStudent = {
+  studentId: number;
   userCode: string;
   name: string;
   checkInTime: string | null;
   distance: number | null;
   accuracy: number | null;
   status: 'present' | 'late' | null;
+  attendanceSource?: 'gps' | 'manual' | null;
+  notes?: string | null;
 };
 
 export type SessionAttendanceResponse = {
@@ -130,9 +135,11 @@ export type DashboardStudent = {
   checkInTime: string | null;
   distance: number | null;
   status: 'present' | 'late' | null;
+  attendanceSource?: 'gps' | 'manual' | null;
 };
 
 export type DashboardResponse = {
+  date?: string;
   summary: {
     totalStudents: number;
     presentCount: number;
@@ -280,6 +287,10 @@ export async function login(userCode: string, password: string): Promise<LoginRe
   });
 }
 
+export async function registerStudent(input: { userCode: string; name: string; email: string; password: string }): Promise<LoginResponse> {
+  return request<LoginResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify(input) });
+}
+
 export async function fetchCurrentUser(): Promise<User> {
   const response = await request<{ user: User }>('/api/users/me');
   return response.user;
@@ -299,6 +310,11 @@ export async function fetchTeacherCourses(teacherId: number): Promise<Course[]> 
   return response.courses;
 }
 
+export async function createTeacherCourse(input: { courseCode: string; courseName: string; classroomId: number }): Promise<number> {
+  const response = await request<{ courseId: number }>('/api/teacher/courses', { method: 'POST', body: JSON.stringify(input) });
+  return response.courseId;
+}
+
 export async function fetchTeacherSessions(teacherId: number): Promise<ClassSession[]> {
   const response = await request<{ sessions: ClassSession[] }>(`/api/teacher/sessions?teacherId=${teacherId}`);
   return response.sessions;
@@ -306,6 +322,13 @@ export async function fetchTeacherSessions(teacherId: number): Promise<ClassSess
 
 export async function fetchTeacherSessionAttendance(id: number): Promise<SessionAttendanceResponse> {
   return request<SessionAttendanceResponse>(`/api/teacher/sessions/${id}/attendance`);
+}
+
+export async function correctTeacherAttendance(sessionId: number, studentId: number, status: 'present' | 'late', notes?: string) {
+  return request<{ attendance: { id: number; status: string; attendanceSource: string; notes: string }; student: { userCode: string; name: string } }>(
+    `/api/teacher/sessions/${sessionId}/attendance/${studentId}`,
+    { method: 'PATCH', body: JSON.stringify({ status, notes }) },
+  );
 }
 
 export async function createTeacherSession(input: SessionInput): Promise<ClassSession> {
@@ -337,9 +360,9 @@ export async function deleteTeacherSession(id: number): Promise<void> {
   });
 }
 
-export async function fetchAttendance(studentId: number): Promise<AttendanceRecord[]> {
+export async function fetchAttendance(studentId: number, date?: string | null): Promise<AttendanceRecord[]> {
   const response = await request<{ records: AttendanceRecord[] }>(
-    `/api/attendance/student/${studentId}`,
+    `/api/attendance/student/${studentId}${date ? `?date=${encodeURIComponent(date)}` : ''}`,
   );
   return response.records;
 }
@@ -360,8 +383,8 @@ export async function checkIn(payload: {
   return response.attendance;
 }
 
-export async function fetchDashboard(courseId: number): Promise<DashboardResponse> {
-  return request<DashboardResponse>(`/api/dashboard?courseId=${courseId}`);
+export async function fetchDashboard(courseId: number, date?: string | null): Promise<DashboardResponse> {
+  return request<DashboardResponse>(`/api/dashboard?courseId=${courseId}${date ? `&date=${encodeURIComponent(date)}` : ''}`);
 }
 
 export async function fetchClassrooms(): Promise<Classroom[]> {

@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMemo, useState } from 'react';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
+import { DateFilter } from '@/components/DateFilter';
 import { IconButton } from '@/components/IconButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -26,10 +27,12 @@ type Props = {
   errorMessage: string | null;
   onBack: () => void;
   onRefresh: () => void;
+  onDateChange: (date: string | null) => void;
   onNavigate: (key: 'home' | 'history' | 'profile') => void;
 };
 
-export function AttendanceHistoryScreen({ user, records, isLoading, errorMessage, onBack, onRefresh, onNavigate }: Props) {
+export function AttendanceHistoryScreen({ user, records, isLoading, errorMessage, onBack, onRefresh, onDateChange, onNavigate }: Props) {
+  const [selectedDate, setSelectedDate] = useState(() => dateString(new Date()));
   const [selectedFilter, setSelectedFilter] = useState<HistoryFilter>('all');
   const summary = useMemo(() => ({
     total: records.length,
@@ -50,6 +53,7 @@ export function AttendanceHistoryScreen({ user, records, isLoading, errorMessage
       <ScreenHeader onBack={onBack} subtitle={`Student ID: ${user.userCode}`} title="Attendance history" />
       <Text style={styles.intro}>Review every check-in result, including late, absent, and cancelled sessions.</Text>
       <IconButton icon="refresh" label="Refresh attendance history" onPress={onRefresh} />
+      <DateFilter value={selectedDate} onChange={(date) => { setSelectedDate(date); onDateChange(date); }} />
       {isLoading ? <Text style={styles.muted}>Loading attendance history...</Text> : null}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
@@ -126,6 +130,8 @@ export function AttendanceHistoryScreen({ user, records, isLoading, errorMessage
     </View>
   );
 }
+
+function dateString(value: Date) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
 
 function SummaryMetric({ label, value, tone }: { label: string; value: number; tone: 'present' | 'late' | 'absent' | 'cancelled' }) {
   return (

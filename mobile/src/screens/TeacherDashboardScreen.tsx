@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AnimatedSurface } from '@/components/AnimatedSurface';
+import { DateFilter } from '@/components/DateFilter';
 import { DecorativeBackdrop } from '@/components/DecorativeBackdrop';
 import { IconButton } from '@/components/IconButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -22,6 +23,8 @@ type Props = {
   onClassrooms: () => void;
   onLogout: () => void;
   onCourseSelect: (courseId: number) => void;
+  selectedDate: string;
+  onDateChange: (date: string) => void;
   onNavigate: (key: 'dashboard' | 'students' | 'classrooms' | 'statistics' | 'settings' | 'sessions') => void;
 };
 
@@ -37,6 +40,8 @@ export function TeacherDashboardScreen({
   onClassrooms,
   onLogout,
   onCourseSelect,
+  selectedDate,
+  onDateChange,
   onNavigate,
 }: Props) {
   const summary = dashboard?.summary ?? {
@@ -59,7 +64,7 @@ export function TeacherDashboardScreen({
 
       <AnimatedSurface delay={100} style={styles.presentationHeader}>
         <View style={styles.presentationCopy}>
-          <Text style={styles.eyebrow}>LIVE DEMO SESSION</Text>
+          <Text style={styles.eyebrow}>LIVE ATTENDANCE SESSION</Text>
           <Text style={styles.presentationTitle}>Attendance overview</Text>
           <Text style={styles.presentationSubtitle}>{course ? `${course.courseCode} • ${course.courseName}` : 'No course selected'}</Text>
         </View>
@@ -71,8 +76,9 @@ export function TeacherDashboardScreen({
 
       <View style={styles.actions}>
           <IconButton icon="refresh" label="Refresh dashboard" onPress={onRefresh} />
-        <PrimaryButton label="Room settings" onPress={onClassrooms} variant="secondary" />
+        <PrimaryButton icon="rooms" label="Room settings" onPress={onClassrooms} variant="secondary" />
       </View>
+      <DateFilter value={selectedDate} onChange={onDateChange} />
 
       {courses.length > 1 ? (
         <View style={styles.courseSelector}>
@@ -139,8 +145,8 @@ export function TeacherDashboardScreen({
 
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionTitle}>Today&apos;s attendance</Text>
-              <Text style={styles.sectionSubtitle}>Live status by enrolled student</Text>
+              <Text style={styles.sectionTitle}>Attendance for {selectedDate}</Text>
+              <Text style={styles.sectionSubtitle}>Status by enrolled student</Text>
             </View>
             <Text style={styles.studentCount}>{dashboard.students.length} students</Text>
           </View>
@@ -185,7 +191,7 @@ function StudentRow({ student, delay = 0 }: { student: DashboardStudent; delay?:
       <View style={styles.studentMeta}>
         <StatusBadge status={status} />
         <Text style={styles.metaText}>{formatTime(student.checkInTime)}</Text>
-        <Text style={styles.metaText}>{formatDistance(student.distance)}</Text>
+        <Text style={styles.metaText}>{student.attendanceSource === 'manual' ? 'Manual correction' : formatDistance(student.distance)}</Text>
       </View>
     </AnimatedSurface>
   );

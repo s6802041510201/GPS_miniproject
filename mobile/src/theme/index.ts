@@ -34,6 +34,7 @@ export const radius = {
 
 export const shadows = {
   card: '0 2px 8px rgba(15, 23, 42, 0.08)',
+  overlay: '0 -4px 18px rgba(15, 23, 42, 0.16)',
 } as const;
 
 export const navigation = {

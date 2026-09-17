@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Geo-Attendance",
-    "slug": "geo-attendance",
+    "slug": "geo-attendanceproject",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,7 +17,11 @@
       "@react-native-community/datetimepicker"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kmutnb.geoattendance",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -30,6 +34,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "efbdceb7-dbc6-417a-b266-43791d90a354"
+      }
+    },
+    "owner": "thitima0201"
   }
 }
